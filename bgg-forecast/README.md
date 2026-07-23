@@ -22,15 +22,9 @@ data (see [Validation](#validation)).
 | File | Purpose |
 |---|---|
 | `geotiff_fetch.py` | General-purpose fetcher for any Baron GeoTIFF product (single timestamp, time range, list-times, legend download) |
-| `fetch_all_bgg.sh` | Batch-fetch **all 60** products in `bgg-global-endpoints.md` (latest run) + their legends |
-| `fetch_daily_20260721_00z.sh` | Batch-fetch the 32 daily day/night temperature-family products for one pinned run |
 | `geotiff_value_at.py` | **The point-query tool**: value at a lat/lon/time, with pipeline-faithful DAY/NIGHT band selection, legend decoding, and windvector (u/v) support |
-| `geotiff_timeseries_at.py` | Dump every band's value over time at a lat/lon (plain/hourly products; `--csv`), incl. windvector |
-| `qa_bgg.py` | On-demand meteorological QA over a folder of products (structure, decode, ranges, roll, cross-product checks) |
 | `bgg-global-endpoints.md` | Catalog of the 60 BGG product codes |
-| `BGG_QA_TEST_PLAN.md` | Test-design document: per-variable QA tests and decode notes |
 | `BGG_Data_Interpretation_Guide.md` | Background on bands and the DAY/NIGHT convention (see caveat in [Validation](#validation)) |
-| `REVIEW_FINDINGS.md` | Record of the deep review of `geotiff_value_at.py` |
 
 ## Requirements
 
@@ -97,8 +91,7 @@ published in some combination of three temporal forms:
   Window-selected; DAY/NIGHT auto-detected from `-day-`/`-night-` in the filename. `windvector`
   day/night = 40 bands.
 
-Fetch everything with `./fetch_all_bgg.sh` (reads the codes straight from
-`bgg-global-endpoints.md`); fetch one product with `geotiff_fetch.py` (see [Usage](#usage)).
+Fetch a product with `geotiff_fetch.py` (see [Usage](#usage)).
 Values are decoded via each product's legend, **except `windvector`** (Int16 u/v, no palette →
 `raw ÷ 100 = m/s`). Aggregation semantics follow the pipeline's `day_night_config.json`.
 
@@ -127,8 +120,7 @@ Forms: **P** = plain/hourly, **D** = `bgg-global-day-…`, **N** = `bgg-global-n
 \*Temperature is the one exception to the naming: the plain form is instantaneous `temp-c-2meter`,
 while day/night split into separate `temp-max` (agg max) and `temp-min` (agg min) products.
 Visibility is published only as a plain hourly product (no day/night). Product tally: 20 plain +
-20 day + 20 night = **60**. Several products carry mislabeled GRIB metadata and other quirks —
-see `BGG_QA_TEST_PLAN.md` for the authoritative per-variable decode notes.
+20 day + 20 night = **60**. Several products carry mislabeled GRIB metadata and other quirks.
 
 ---
 
@@ -148,12 +140,6 @@ python3 geotiff_fetch.py \
 # List which model runs the API currently has
 python3 geotiff_fetch.py --product bgg-global-day-temp-max-c-2meter \
     --projection Standard-Geodetic --product-type forecast --list-times
-
-# All 60 products (every code in bgg-global-endpoints.md) for the latest run
-./fetch_all_bgg.sh                # --list to preview, --timestamp/--dir to customize
-
-# Or just the 32 daily day/night temperature-family products for one pinned run
-./fetch_daily_20260721_00z.sh     # edit TS/STAMP inside for a different run
 ```
 
 Notes:
@@ -162,8 +148,7 @@ Notes:
   flag is an optimization, not a requirement).
 - `--timestamp` is a strictly-exclusive *older_than* query: asking for a run's **exact** init
   time silently resolves to the *previous* retained run (or nothing, if none is retained).
-  Ask for 1 second later (`2026-07-21T00:00:01Z` resolves to the `2026-07-21T00:00:00Z` run)
-  — `fetch_daily_*.sh` does this for you.
+  Ask for 1 second later (`2026-07-21T00:00:01Z` resolves to the `2026-07-21T00:00:00Z` run).
 - **Keep the `{product}_{projection}_…​.tif` filename convention** (the fetch commands above
   do): `geotiff_value_at.py` parses product and projection out of the filename to fetch the
   right legend, **and** detects DAY/NIGHT from `-day-`/`-night-` in the basename. Renaming a
