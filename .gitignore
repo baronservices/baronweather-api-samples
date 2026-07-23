@@ -1,0 +1,5 @@
+# File-safety backups
+backup/
+
+# macOS
+.DS_Store
