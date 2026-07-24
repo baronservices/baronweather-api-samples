@@ -23,6 +23,9 @@ data (see [Validation](#validation)).
 |---|---|
 | `geotiff_fetch.py` | General-purpose fetcher for any Baron GeoTIFF product (single timestamp, time range, list-times, legend download) |
 | `geotiff_value_at.py` | **The point-query tool**: value at a lat/lon/time, with pipeline-faithful DAY/NIGHT band selection, legend decoding, and windvector (u/v) support |
+| `qa_bgg.py` | On-demand structural, decode, temporal, georeference, cross-product, and weather-code QA gate for a folder of BGG GeoTIFFs |
+| `qa_selftest.py` | Synthetic-defect harness that injects known faults into clones of good products and asserts `qa_bgg.py` catches each one |
+| `fetch_all_bgg.sh` | Bulk-fetch helper: downloads every product in `bgg-global-endpoints.md` (latest run, Standard-Geodetic) plus legends into `download/` |
 | `bgg-global-endpoints.md` | Catalog of the 60 BGG product codes |
 | `BGG_Data_Interpretation_Guide.md` | Background on bands and the DAY/NIGHT convention (see caveat in [Validation](#validation)) |
 
@@ -57,6 +60,60 @@ A daily product file (e.g. `bgg-global-day-temp-max-c-2meter`) contains:
   (public, no auth).
 
 Model runs are produced twice daily (00Z and 12Z); the API retains the two most recent runs.
+
+## Dataset QA gate
+
+Run the QA gate against any folder containing BGG files named with `_latest`, a compact
+timestamp, a bare product name, or the raw `source+...` delivery convention:
+
+```bash
+python3 qa_bgg.py --dir download
+```
+
+Use `-v` to emit structured JSON-lines diagnostics to stderr. Aggregate records explain
+the inputs and outcome of each structural/statistical check; pixel records include row/column,
+lat/lon, run and valid time, decoded values, classifications such as `summer`, `winter`,
+`hot`, `cold`, `rain`, `snow`, `humid`, or weather-code groups, the predicate applied, and
+the pixel-level `PASS`/`FAIL` result:
+
+```bash
+python3 qa_bgg.py --dir download -v 2> qa-trace.jsonl
+
+# Keep only the first 100 pixel records per rule while retaining all aggregate trace records.
+python3 qa_bgg.py --dir download -v --verbose-pixel-limit 100 2> qa-trace.jsonl
+```
+
+`-v` without a limit traces every evaluated pixel and can produce extremely large output on
+global products. Normal QA output remains on stdout, so it can be captured separately.
+
+The gate rejects mixed model runs and valid-time schedules, duplicate product/form inputs,
+unrecognized-only folders, incorrect forecast starts, bad windvector component ordering,
+and failed physical or cross-product checks. Every scalar band's palette usage and decoded
+range are audited; on the full 60-product dataset this comprehensive pass takes roughly two
+minutes. Cross-product and weather-code checks sample three forecast bands per form by
+default; use `--cross-sample-bands 0` to check every cross-product band or
+`--wx-sample-bands 0` to disable weather-code checks. Rules that cannot be evaluated are
+reported explicitly as `SKIP` and do not fail the gate.
+
+Other flags: `--legends DIR` points at a folder of local `*_legend.json` instead of fetching
+from the CDN (defaults to `--dir`); `--strict` promotes every `WARN` to a `FAIL`; and
+`--json PATH` also writes the full report (summary + per-item results) as JSON.
+
+### Self-test
+
+`qa_selftest.py` proves the gate actually catches the faults it claims to. It clones known-good
+products from a reference folder, injects one defect per case (longitude roll, north–south
+flip, a nodata index in one band, a frozen band, over-used clamp buckets, shifted
+`GRIB_VALID_TIME`, swapped windvector u/v tags, a mixed model run), runs `qa_bgg.py` against
+each mutation, and asserts the expected `FAIL` appears — plus that an untouched clone still
+passes. The reference folder is never written.
+
+```bash
+python3 qa_selftest.py --reference download        # build clones in a temp dir, run all cases
+python3 qa_selftest.py --reference download --keep  # keep the mutated clones for inspection
+```
+
+Exits 0 only if every case behaves as expected.
 
 ### Why band selection is non-trivial
 
@@ -141,6 +198,20 @@ python3 geotiff_fetch.py \
 python3 geotiff_fetch.py --product bgg-global-day-temp-max-c-2meter \
     --projection Standard-Geodetic --product-type forecast --list-times
 ```
+
+To pull the **whole catalog** at once (latest run, Standard-Geodetic, plus each legend) use
+`fetch_all_bgg.sh`, which reads the product codes from `bgg-global-endpoints.md` and writes
+the `{product}_{projection}_latest.tif` + `_legend.json` names that `geotiff_value_at.py` and
+`qa_bgg.py` expect:
+
+```bash
+./fetch_all_bgg.sh --list          # dry run: print the product codes it would fetch
+./fetch_all_bgg.sh --dir download  # fetch all 60 products (~10 GB, sequential)
+```
+
+Requires `BARON_ACCESS_KEY` / `BARON_ACCESS_KEY_SECRET`. Fetches are sequential (plain/hourly
+products are 252-band, up to ~380 MB); 10 of the 60 legends legitimately 404 at the CDN (mps
+winds, windvector, day/night wxcode, plain precip-probability) and are reported, not failed.
 
 Notes:
 - BGG products live on the `/meta/maps/` (forecast) endpoint; pass `--product-type forecast`
