@@ -1,0 +1,17 @@
+# Credentials. Never commit these.
+.env
+
+# Generated zone geometry. The full dataset is about 300 MB.
+zones_out/
+
+# Generated reports and logs.
+alerts_report.json
+alerts_report_*.json
+*.log
+
+# File-safety backups.
+backup/
+
+# Python
+__pycache__/
+*.pyc

@@ -3,3 +3,13 @@ backup/
 
 # macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# bgg-forecast outputs
+bgg-forecast/download/
+bgg-forecast/download.*/
+bgg-forecast/logs/
+bgg-forecast/report.json
