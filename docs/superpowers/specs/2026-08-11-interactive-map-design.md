@@ -154,13 +154,17 @@ error in the panel rather than a blank map.
 
 ```
 interactive-map/
-├── index.html      panel markup, inline styles, MapLibre CDN tags   (~80 lines)
-├── baron.js        credentials, signing, instance lookup, URLs      (~90 lines)
-├── app.js          products, map setup, panel wiring, legend        (~110 lines)
+├── index.html      panel markup, inline styles, MapLibre CDN tags
+├── baron.js        credentials, signing, instance lookup, URLs
+├── app.js          products, map setup, panel wiring, legend
 ├── env.example     credential template, tracked
 ├── .env            credentials, ignored by the root .gitignore
 └── README.md       setup, the API notes from section 2, checklist
 ```
+
+No line budget applies. Thorough comments are a requirement, and they make each file
+noticeably longer than a bare implementation would be. What matters is that each file keeps one
+responsibility.
 
 The split that matters: `baron.js` never references MapLibre, and `app.js` never computes a
 signature. Each file can be read on its own.
@@ -323,7 +327,8 @@ and signing fails with an obscure type error. The app checks for it once and rep
 
 ## 10. Verification checklist
 
-Manual. No test harness — the app is roughly 280 lines.
+Manual. No test harness — the app is three small files and every check below is observable in a
+browser.
 
 1. Copy `env.example` to `.env` and fill in a valid key and secret.
 2. Run `python3 -m http.server 8000` in `interactive-map/`. Open `http://localhost:8000/`.

@@ -16,7 +16,7 @@
 - **No build step, no npm, no installed dependencies.** Only the two MapLibre files from a CDN.
 - **MapLibre GL JS pinned to 5.24.0**: `https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js` and `.../maplibre-gl.css`. Do not upgrade to 6.x — it ships ES modules only and has no build usable from a plain `<script>` tag.
 - **No test framework.** The spec's section 10 calls for manual verification. Each task below ends with an explicit verification step instead. Do not add a test runner, a `package.json`, or a `node_modules`.
-- **Three source files only:** `index.html` (~80 lines), `baron.js` (~90 lines), `app.js` (~110 lines). Plus `env.example` and `README.md`.
+- **Three source files only:** `index.html`, `baron.js`, `app.js`, plus `env.example` and `README.md`. Do not create further source files. Each file keeps the single responsibility given in the File Structure table below. No line budget is imposed — thorough comments are a requirement of this plan and will make each file noticeably longer than a bare implementation would be.
 - **Very basic demonstration app.** Simple, well commented code is a requirement. Every verified API quirk gets a comment at the place the code depends on it. Do not add features beyond this plan.
 - **API base:** `https://api.velocityweather.com/v1`
 - **Legend base:** `https://static.velocityweather.com/legends` — public, takes no signature.
@@ -148,10 +148,6 @@ Produces a page that loads MapLibre, draws the demo basemap, and shows an empty 
  * Baron Weather API lives in baron.js.
  */
 
-// The demo basemap's first symbol layer. Weather is inserted below it so that
-// country labels stay readable on top of the data.
-const LABEL_LAYER = 'geolines-label'
-
 let map
 
 /** Shorthand for document.getElementById. */
@@ -203,7 +199,7 @@ In the browser console, run:
 map.getStyle().layers.map(l => l.id + ' (' + l.type + ')')
 ```
 
-Expected: the list contains `geolines-label (symbol)`. This is the anchor `LABEL_LAYER` names, and Task 3 depends on it.
+Expected: the list contains `geolines-label (symbol)`. Task 3 inserts the weather layer directly below this one, so confirm it exists now rather than debugging a failed `addLayer` later.
 
 - [ ] **Step 5: Commit**
 
@@ -435,10 +431,6 @@ const PRODUCTS = [
   }
 ]
 
-// The demo basemap's first symbol layer. Weather is inserted below it so that
-// country labels stay readable on top of the data.
-const LABEL_LAYER = 'geolines-label'
-
 let map
 let selected = PRODUCTS[0]
 
@@ -543,10 +535,10 @@ Produces working weather tiles. The product radios and the Refresh button become
 - Modify: `interactive-map/app.js`
 
 **Interfaces:**
-- Consumes: `API_BASE`, `signQuery()`, `refreshSignature()`, `latestInstance(product, config)` from Task 2. `PRODUCTS`, `LABEL_LAYER`, `el`, `setStatus`, `createMap`, `start` from Task 2's `app.js`.
+- Consumes: `API_BASE`, `signQuery()`, `refreshSignature()`, `latestInstance(product, config)` from Task 2. `PRODUCTS`, `el`, `setStatus`, `createMap`, `start` from Task 2's `app.js`.
 - Produces:
   - `baron.js`: `tmsTemplate(product, config, time)` → unsigned URL template string
-  - `app.js`: `showProduct()` → `Promise<void>`, the single code path that puts weather on the map; `buildProducts()`
+  - `app.js`: `LABEL_LAYER` constant; `showProduct()` → `Promise<void>`, the single code path that puts weather on the map; `buildProducts()`
 
 - [ ] **Step 1: Add `tmsTemplate` to `interactive-map/baron.js`**
 
@@ -621,7 +613,15 @@ function createMap() {
 
 - [ ] **Step 3: Add the layer code path and the product radios**
 
-Insert before `start()`:
+Add the insertion anchor near the top of the file, below the `PRODUCTS` list:
+
+```js
+// The demo basemap's first symbol layer. Weather is inserted below it so that
+// country labels stay readable on top of the data.
+const LABEL_LAYER = 'geolines-label'
+```
+
+Then insert before `start()`:
 
 ```js
 /**
