@@ -12,7 +12,8 @@ import {
   signQuery,
   refreshSignature,
   latestInstance,
-  tmsTemplate
+  tmsTemplate,
+  wmsTemplate
 } from './baron.js'
 
 // The three products this demo offers. All are observational raster products on
@@ -41,6 +42,7 @@ const LABEL_LAYER = 'geolines-label'
 
 let map
 let selected = PRODUCTS[0]
+let protocol = 'tms'   // 'tms' or 'wms'
 
 /** Shorthand for document.getElementById. */
 const el = (id) => document.getElementById(id)
@@ -82,7 +84,9 @@ function createMap() {
     // not more than once every 30 seconds.
     if (Date.now() - lastRefresh > 30000) {
       lastRefresh = Date.now()
-      refreshSignature()
+      refreshSignature().catch((error) => {
+        console.warn('signature refresh failed:', error.message)
+      })
     }
   })
 }
@@ -109,13 +113,21 @@ async function showProduct() {
     return
   }
 
-  map.addSource('wx', {
+  const source = {
     type: 'raster',
-    tiles: [tmsTemplate(selected.code, selected.config, time)],
+    tiles: [
+      protocol === 'tms'
+        ? tmsTemplate(selected.code, selected.config, time)
+        : wmsTemplate(selected.code, selected.config, time)
+    ],
     tileSize: 256,
-    scheme: 'tms',           // Baron TMS rows run bottom-up
     attribution: '&copy; Baron Weather'
-  })
+  }
+  // Baron TMS rows run bottom-up. WMS is addressed by bounding box, so it uses
+  // the default scheme.
+  if (protocol === 'tms') source.scheme = 'tms'
+
+  map.addSource('wx', source)
   map.addLayer({ id: 'wx', type: 'raster', source: 'wx' }, LABEL_LAYER)
 
   setStatus(`Valid ${time}`)
@@ -139,8 +151,23 @@ function buildProducts() {
   })
 }
 
+/** Wire the TMS/WMS buttons. Switching redraws the selected product. */
+function buildProtocolToggle() {
+  const buttons = document.querySelectorAll('#protocol button')
+  for (const button of buttons) {
+    button.addEventListener('click', () => {
+      protocol = button.dataset.protocol
+      for (const other of buttons) {
+        other.classList.toggle('on', other === button)
+      }
+      showProduct()
+    })
+  }
+}
+
 async function start() {
   buildProducts()
+  buildProtocolToggle()
   el('refresh').addEventListener('click', showProduct)
   createMap()
 
