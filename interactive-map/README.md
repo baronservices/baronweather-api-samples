@@ -15,6 +15,12 @@ python3 -m http.server 8000
 
 Open <http://localhost:8000/>.
 
+`http.server` runs in the foreground and has to keep running the whole time you use the page, so
+start it in a terminal you can leave open and press `Ctrl-C` to stop it when you are done. If port
+8000 is already taken it fails with `OSError: [Errno 48] Address already in use` — that failure
+appears in the terminal, not in the browser, so check there first if the page will not load. Pick
+another port and change the URL to match.
+
 Use `localhost`, not a LAN address. Signing uses `crypto.subtle`, which browsers expose only in
 a secure context. `http://localhost` and `http://127.0.0.1` qualify; `http://192.168.1.20:8000`
 does not, and the page will tell you so rather than fail obscurely.
