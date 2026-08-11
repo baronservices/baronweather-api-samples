@@ -5,7 +5,34 @@
  * Baron Weather API lives in baron.js.
  */
 
+import {
+  loadCredentials,
+  startSigning,
+  latestInstance
+} from './baron.js'
+
+// The three products this demo offers. All are observational raster products on
+// Standard-Mercator, and all work over both TMS and WMS.
+const PRODUCTS = [
+  {
+    code: 'C39-0x0302-0',
+    config: 'Standard-Mercator',
+    label: 'Max Reflectivity Composite'
+  },
+  {
+    code: 'lightning-heatmap-global',
+    config: 'Standard-Mercator',
+    label: 'Lightning Heatmap'
+  },
+  {
+    code: 'goes-east-fulldisk-hires-ir',
+    config: 'Standard-Mercator',
+    label: 'GOES East Full Disk IR'
+  }
+]
+
 let map
+let selected = PRODUCTS[0]
 
 /** Shorthand for document.getElementById. */
 const el = (id) => document.getElementById(id)
@@ -25,9 +52,24 @@ function createMap() {
   })
 }
 
-function start() {
+async function start() {
   createMap()
-  setStatus('Basemap loaded.')
+
+  try {
+    await loadCredentials()
+    await startSigning()
+  } catch (error) {
+    // Without credentials the basemap still loads, so the page is never blank.
+    setStatus(error.message, true)
+    return
+  }
+
+  try {
+    const time = await latestInstance(selected.code, selected.config)
+    setStatus(`Valid ${time}`)
+  } catch (error) {
+    setStatus(error.message, true)
+  }
 }
 
 start()
