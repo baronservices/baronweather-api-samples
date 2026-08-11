@@ -16,3 +16,9 @@ bgg-forecast/download/
 bgg-forecast/download.*/
 bgg-forecast/logs/
 bgg-forecast/report.json
+
+# geotiff_fetch outputs
+geotiff_fetch/logs/
+geotiff_fetch/*.tif
+geotiff_fetch/*_legend.json
+geotiff_fetch/*.qml
