@@ -33,12 +33,7 @@ data (see [Validation](#validation)).
 
 - Python 3.9+ with: `GDAL` (osgeo bindings), `timezonefinder`, `requests`, `tenacity`
   (`requests`/`tenacity` are only needed by `geotiff_fetch.py`; `GDAL`/`timezonefinder` only by `geotiff_value_at.py`)
-- API credentials in the environment (fetching only — legend download and value decoding hit a public CDN):
-
-```bash
-export BARON_ACCESS_KEY=...
-export BARON_ACCESS_KEY_SECRET=...
-```
+- API credentials in a `.env` file (fetching only — legend download and value decoding hit a public CDN)
 
 ### Credentials
 
@@ -48,20 +43,32 @@ Copy the example file and fill in your own key and secret:
 cp env.example .env
 ```
 
-These scripts read the **environment**, not a file — there is no `.env` loader here. So
-load it into the shell first:
-
-```bash
-set -a; source .env; set +a
+```
+BARON_ACCESS_KEY=your_access_key
+BARON_ACCESS_KEY_SECRET=your_access_secret
 ```
 
-Two things to watch:
+`geotiff_fetch.py` reads this file directly. There is nothing to source and nothing to
+export.
 
-- The variable names are `BARON_ACCESS_KEY` / `BARON_ACCESS_KEY_SECRET`. The sibling
-  `baron_alert_geometry` tools use `BARON_API_KEY` / `BARON_API_SECRET` and read a `.env`
-  file directly. One `.env` will not serve both folders unless it carries both pairs.
-- `geotiff_fetch.py` raises an error naming `--access-key` and `--access-key-secret`
-  flags. Those flags are not defined in its argument parser. Use the environment.
+**The file is the only source.** Environment variables are not read. Exporting
+`BARON_ACCESS_KEY` has no effect. One visible file is easier to audit than a value that
+could arrive from a shell, a container, or a cron environment, and a stale exported key
+silently overriding the file is a confusing failure to diagnose.
+
+Left at its default, `--env` searches:
+
+1. `.env` in the current working directory
+2. `.env` beside the script
+
+So the tools work from any directory, and a per-project `.env` still wins over the one in
+the script folder. `fetch_all_bgg.sh` changes into its own directory first, so it always
+finds the `.env` beside it. An explicit `--env /path/to/.env` is used exactly as given and
+never falls back. If nothing is found, the error names every path it tried.
+
+Note the variable names differ from the sibling `baron_alert_geometry` tools, which use
+`BARON_API_KEY` / `BARON_API_SECRET`. One `.env` serves both folders only if it carries
+both pairs.
 
 `.gitignore` excludes `.env`, so your filled-in copy is never committed.
 
@@ -234,7 +241,7 @@ the `{product}_{projection}_latest.tif` + `_legend.json` names that `geotiff_val
 ./fetch_all_bgg.sh --dir download  # fetch all 60 products (~10 GB, sequential)
 ```
 
-Requires `BARON_ACCESS_KEY` / `BARON_ACCESS_KEY_SECRET`. Fetches are sequential (plain/hourly
+Requires `BARON_ACCESS_KEY` / `BARON_ACCESS_KEY_SECRET` in `.env`. Fetches are sequential (plain/hourly
 products are 252-band, up to ~380 MB); 10 of the 60 legends legitimately 404 at the CDN (mps
 winds, windvector, day/night wxcode, plain precip-probability) and are reported, not failed.
 

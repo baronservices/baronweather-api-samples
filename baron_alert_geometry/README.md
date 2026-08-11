@@ -36,8 +36,12 @@ BARON_API_BASE_URL=https://api.velocityweather.com
 `.gitignore` excludes `.env`, `zones_out/`, the generated reports, and every `*.gpkg`
 and `*.fgb`. All of those are script output.
 
-`BARON_API_KEY` / `BARON_API_SECRET` / `BARON_API_BASE_URL` in the environment override
-the file. Check GDAL with:
+**The file is the only source.** Environment variables are not read. Exporting
+`BARON_API_KEY` has no effect. One visible file is easier to audit than a value that
+could arrive from a shell, a container, or a cron environment, and a stale exported key
+silently overriding the file is a confusing failure to diagnose.
+
+Check GDAL with:
 
 ```bash
 python3 -c "from osgeo import gdal; print(gdal.__version__)" && ogr2ogr --version
@@ -539,7 +543,8 @@ timestamp before being overwritten.
 
 **`BARON_API_KEY / BARON_API_SECRET not found`** — no `.env` in the working directory
 and none beside the script. The error lists both paths it tried. Pass
-`--env /path/to/.env`, or set the three variables in the environment.
+`--env /path/to/.env`. Exporting the variables will not help — the `.env` file is the
+only source.
 
 **`ogr2ogr not found on PATH`** — NDJSON is still staged. Install GDAL and rerun with
 `--resume` to convert without refetching.

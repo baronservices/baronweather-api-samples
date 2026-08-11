@@ -12,8 +12,10 @@
 #                   the API's metadata query is a strictly-exclusive "older_than".
 #   --list          dry run: print the product codes that would be fetched, then exit.
 #
-# Requires BARON_ACCESS_KEY / BARON_ACCESS_KEY_SECRET in the environment (fetch only;
-# legends are public). Product codes are read from bgg-global-endpoints.md next to
+# Requires BARON_ACCESS_KEY / BARON_ACCESS_KEY_SECRET in a .env file beside this
+# script (fetch only; legends are public). Copy env.example to .env. Credentials are
+# read from that file only, never from the environment, so exporting the variables
+# has no effect. Product codes are read from bgg-global-endpoints.md next to
 # this script. Output naming (…_Standard-Geodetic_latest.tif + _legend.json) is what
 # geotiff_value_at.py / qa_bgg.py expect for legend auto-resolution.
 #

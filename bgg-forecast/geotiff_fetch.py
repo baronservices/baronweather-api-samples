@@ -29,9 +29,19 @@ Usage Modes:
         python geotiff_fetch.py --product north-american-radar \
             --projection Mask1-Mercator --save-legend legend.json
 
-Environment Variables:
-    BARON_ACCESS_KEY: API access key (can override with --access-key)
-    BARON_ACCESS_KEY_SECRET: API secret (can override with --access-key-secret)
+Credentials:
+    Read from a .env file, and from nothing else. Copy env.example to .env and
+    fill in your key and secret:
+
+        BARON_ACCESS_KEY=...
+        BARON_ACCESS_KEY_SECRET=...
+
+    The file is looked for in the current working directory first, then beside
+    this script, so the script works from any directory. Override with --env.
+
+    Environment variables are deliberately NOT read. One visible file is easier
+    to audit than a value that could come from a shell, a container, or a cron
+    environment, and a stale exported key silently winning is hard to diagnose.
 """
 
 import argparse
@@ -186,57 +196,102 @@ def mask_credential(credential):
 # Authentication
 # ============================================================================
 
-def get_credentials(access_key=None, access_key_secret=None):
+def load_env(path):
     """
-    Get API credentials from CLI arguments or environment variables with fallback.
+    Parse a KEY=VALUE .env file into a dict.
 
-    Implements a two-tier credential resolution strategy:
-    1. First priority: CLI arguments (--access-key, --access-key-secret)
-    2. Second priority: Environment variables (BARON_ACCESS_KEY, BARON_ACCESS_KEY_SECRET)
-
-    This allows CLI arguments to override environment variables for flexibility
-    in multi-account scenarios or testing.
+    Blank lines, comment lines, and lines without '=' are skipped. Surrounding
+    single or double quotes are stripped from the value.
 
     Args:
-        access_key (str, optional): Baron API access key from CLI. Defaults to None.
-        access_key_secret (str, optional): Baron API secret from CLI. Defaults to None.
+        path (str): Path to the .env file. A missing file yields an empty dict.
 
     Returns:
-        tuple[str, str]: Tuple containing (access_key, access_key_secret). Both values
-            are guaranteed to be non-empty strings if function returns successfully.
+        dict[str, str]: The parsed key/value pairs.
+    """
+    values = {}
+    if not os.path.exists(path):
+        return values
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, _, value = line.partition('=')
+            values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def resolve_env_path(env_path):
+    """
+    Find the .env file to read. Returns (path, list of paths tried).
+
+    A bare default like '.env' resolves against the current working directory, so
+    running this script from anywhere but its own folder would find nothing even
+    when the .env sits right beside it. The working directory is searched first,
+    so a per-project .env keeps winning; the script's folder is the fallback.
+
+    An explicit --env path is used exactly as given and never falls back. A named
+    path must not silently resolve to different credentials.
+
+    Args:
+        env_path (str): The path requested, usually the '.env' default.
+
+    Returns:
+        tuple[str, list[str]]: The path to read, and every path considered.
+    """
+    tried = [os.path.abspath(env_path)]
+    if os.path.exists(env_path):
+        return env_path, tried
+    if os.path.isabs(env_path) or os.path.dirname(env_path):
+        return env_path, tried
+    beside_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), env_path)
+    tried.append(beside_script)
+    if os.path.exists(beside_script):
+        return beside_script, tried
+    return env_path, tried
+
+
+def get_credentials(env_path='.env'):
+    """
+    Get API credentials from a .env file.
+
+    The file is the only source. Environment variables are deliberately not read:
+    one visible file is easier to audit than a value that could arrive from a
+    shell, a container, or a cron environment, and a stale exported key silently
+    taking precedence over the file is a confusing failure to diagnose.
+
+    Args:
+        env_path (str): Path to the .env file. Defaults to '.env', which resolves
+            through resolve_env_path().
+
+    Returns:
+        tuple[str, str]: (access_key, access_key_secret). Both are non-empty
+            strings if this function returns.
 
     Raises:
-        ValueError: If both credentials cannot be resolved from either CLI args or
-            environment variables. Provides helpful error message with setup instructions.
+        ValueError: If either credential is absent. The message names every path
+            that was searched.
 
     Side Effects:
-        - Logs masked access key at INFO level for verification
-        - Uses mask_credential() to safely log first/last 4 chars only
-
-    Time Complexity: O(1)
-    Space Complexity: O(1)
+        - Logs the masked access key at INFO level for verification.
 
     Examples:
-        >>> # Using environment variables
-        >>> os.environ['BARON_ACCESS_KEY'] = 'my_key'
-        >>> os.environ['BARON_ACCESS_KEY_SECRET'] = 'my_secret'
-        >>> key, secret = get_credentials()
-
-        >>> # Using CLI arguments (overrides env vars)
-        >>> key, secret = get_credentials('cli_key', 'cli_secret')
-
-        >>> # Missing credentials
-        >>> key, secret = get_credentials()  # Raises ValueError
+        >>> key, secret = get_credentials()            # ./.env, then beside this file
+        >>> key, secret = get_credentials('/etc/baron.env')
     """
-    # Priority 1: CLI args, Priority 2: Environment variables
-    key = access_key or os.getenv('BARON_ACCESS_KEY')
-    secret = access_key_secret or os.getenv('BARON_ACCESS_KEY_SECRET')
+    resolved, tried = resolve_env_path(env_path)
+    values = load_env(resolved)
+    key = values.get('BARON_ACCESS_KEY')
+    secret = values.get('BARON_ACCESS_KEY_SECRET')
 
     if not key or not secret:
         raise ValueError(
             "API credentials not found. Set BARON_ACCESS_KEY and "
-            "BARON_ACCESS_KEY_SECRET environment variables or use "
-            "--access-key and --access-key-secret flags."
+            "BARON_ACCESS_KEY_SECRET in a .env file. Searched:\n  "
+            + "\n  ".join(tried)
+            + "\nCredentials are read from the .env file only, not the environment. "
+              "Copy env.example to .env to get started."
         )
 
     # Log masked key for verification (security: only shows first/last 4 chars)
@@ -674,9 +729,10 @@ Examples:
   # Download legend (color scale)
   %(prog)s --product north-american-radar --projection Mask1-Mercator --save-legend legend.json
 
-Environment Variables:
-  BARON_ACCESS_KEY       API access key (required)
+Credentials (.env file only, never the environment):
+  BARON_ACCESS_KEY        API access key (required)
   BARON_ACCESS_KEY_SECRET API access key secret (required)
+  Copy env.example to .env. Searched in this directory, then beside the script.
 
 Common Products:
   C39-0x03EA-0              North American Radar
@@ -774,14 +830,11 @@ Exit Codes:
 
     # Credentials
     parser.add_argument(
-        '--access-key',
-        metavar='KEY',
-        help='API access key (overrides BARON_ACCESS_KEY env var)'
-    )
-    parser.add_argument(
-        '--access-key-secret',
-        metavar='SECRET',
-        help='API secret (overrides BARON_ACCESS_KEY_SECRET env var)'
+        '--env',
+        metavar='PATH',
+        default='.env',
+        help='path to the .env holding BARON_ACCESS_KEY / BARON_ACCESS_KEY_SECRET '
+             '(default: .env in this directory, then beside the script)'
     )
 
     # Logging
@@ -852,7 +905,7 @@ Exit Codes:
                 logging.warning("Continuing with other operations despite legend failure")
 
         # Get credentials (only needed for data operations, not legend)
-        access_key, access_key_secret = get_credentials(args.access_key, args.access_key_secret)
+        access_key, access_key_secret = get_credentials(args.env)
 
         # Mode 1: List available times
         if args.list_times:

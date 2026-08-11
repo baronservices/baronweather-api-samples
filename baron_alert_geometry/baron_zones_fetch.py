@@ -124,16 +124,22 @@ def resolve_env_path(env_path):
 
 
 def get_credentials(env_path):
-    """Resolve API credentials from the environment, falling back to .env."""
+    """Resolve API credentials from the .env file.
+
+    The file is the only source. Environment variables are deliberately not read:
+    one visible file is easier to audit than a value that could come from a shell,
+    a container, or a cron environment, and a stale exported key silently taking
+    precedence over the file is a confusing failure to diagnose.
+    """
     resolved, tried = resolve_env_path(env_path)
     env = load_env(resolved)
-    key = os.environ.get('BARON_API_KEY') or env.get('BARON_API_KEY')
-    secret = os.environ.get('BARON_API_SECRET') or env.get('BARON_API_SECRET')
-    base = (os.environ.get('BARON_API_BASE_URL') or env.get('BARON_API_BASE_URL')
-            or 'https://api.velocityweather.com')
+    key = env.get('BARON_API_KEY')
+    secret = env.get('BARON_API_SECRET')
+    base = env.get('BARON_API_BASE_URL') or 'https://api.velocityweather.com'
     if not key or not secret:
-        sys.exit('error: BARON_API_KEY / BARON_API_SECRET not found in the environment '
-                 'or in:\n  ' + '\n  '.join(tried))
+        sys.exit('error: BARON_API_KEY / BARON_API_SECRET not found in:\n  '
+                 + '\n  '.join(tried)
+                 + '\ncredentials are read from the .env file only, not the environment')
     return key, secret, base.rstrip('/')
 
 

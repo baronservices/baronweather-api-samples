@@ -482,6 +482,27 @@ def test_env_resolution(workdir):
               key == 'local' and secret == 'localsecret', key)
         check('the base url falls back to the default',
               base == 'https://api.velocityweather.com', base)
+
+        # The file is the only source. An exported key must not win, or a stale
+        # shell variable silently overrides the file and is hard to diagnose.
+        saved = {name: os.environ.get(name) for name in
+                 ('BARON_API_KEY', 'BARON_API_SECRET', 'BARON_API_BASE_URL')}
+        os.environ['BARON_API_KEY'] = 'from_environment'
+        os.environ['BARON_API_SECRET'] = 'from_environment'
+        os.environ['BARON_API_BASE_URL'] = 'https://wrong.example.com'
+        try:
+            key, secret, base = fetch.get_credentials('.env')
+            check('an exported key does not override the file', key == 'local', key)
+            check('an exported secret does not override the file',
+                  secret == 'localsecret', secret)
+            check('an exported base url does not override the file',
+                  base == 'https://api.velocityweather.com', base)
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
         os.remove(local)
 
         # An explicit path is used as given. Guessing elsewhere would silently read
