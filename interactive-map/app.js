@@ -13,9 +13,12 @@ import {
   refreshSignature,
   latestInstance,
   tmsTemplate,
-  wmsTemplate,
+  wmsImageUrl,
   legendUrl
 } from './baron.js'
+
+// The service rejects WIDTH or HEIGHT above this.
+const WMS_MAX_PIXELS = 3000
 
 // The three products this demo offers. All are observational raster products on
 // Standard-Mercator, and all work over both TMS and WMS.
@@ -45,6 +48,7 @@ let map
 let selected = PRODUCTS[0]
 let protocol = 'tms'   // 'tms' or 'wms'
 let ready = false   // credentials loaded and the first signature computed
+let currentTime = null   // the instance time showProduct() last resolved
 
 /** Shorthand for document.getElementById. */
 const el = (id) => document.getElementById(id)
@@ -53,6 +57,57 @@ const el = (id) => document.getElementById(id)
 function setStatus(text, isError = false) {
   el('status').textContent = text
   el('status').classList.toggle('error', isError)
+}
+
+/**
+ * Forward Web Mercator, degrees to EPSG:3857 metres.
+ *
+ * Inputs are clamped: longitudes can run past ±180 when the map wraps, and the
+ * latitude formula diverges at the poles, so 85.05112878 is Web Mercator's
+ * usable limit.
+ */
+function toMercator(lng, lat) {
+  const l = Math.max(-180, Math.min(180, lng))
+  const t = Math.max(-85.05112878, Math.min(85.05112878, lat))
+  return [
+    (l * 20037508.34) / 180,
+    (Math.log(Math.tan(((90 + t) * Math.PI) / 360)) / (Math.PI / 180)) * (20037508.34 / 180)
+  ]
+}
+
+/**
+ * The WMS image URL and corner coordinates for the current view.
+ *
+ * getBounds() returns a box that covers the viewport even when the map is
+ * rotated, and height is derived from that box's aspect rather than the canvas
+ * aspect — so the image is never distorted, whatever the camera is doing.
+ *
+ * Returns null for a momentarily unsized container (width or height of 0)
+ * rather than requesting a bad URL.
+ */
+function wmsViewport() {
+  const bounds = map.getBounds()
+  const [minx, miny] = toMercator(bounds.getWest(), bounds.getSouth())
+  const [maxx, maxy] = toMercator(bounds.getEast(), bounds.getNorth())
+
+  let width = Math.min(map.getCanvas().clientWidth, WMS_MAX_PIXELS)
+  let height = Math.round((width * (maxy - miny)) / (maxx - minx))
+  if (height > WMS_MAX_PIXELS) {
+    width = Math.round((width * WMS_MAX_PIXELS) / height)
+    height = WMS_MAX_PIXELS
+  }
+  if (!width || !height) return null
+
+  return {
+    url: wmsImageUrl(selected.code, selected.config, currentTime,
+                     [minx, miny, maxx, maxy], width, height),
+    coordinates: [
+      [bounds.getWest(), bounds.getNorth()],
+      [bounds.getEast(), bounds.getNorth()],
+      [bounds.getEast(), bounds.getSouth()],
+      [bounds.getWest(), bounds.getSouth()]
+    ]
+  }
 }
 
 function createMap() {
@@ -90,6 +145,17 @@ function createMap() {
         console.warn('signature refresh failed:', error.message)
       })
     }
+  })
+
+  // WMS delivers one image for one view, so a new view needs a new image. TMS
+  // needs nothing here: MapLibre requests tiles for the new view by itself.
+  map.on('moveend', () => {
+    if (protocol !== 'wms' || !ready || !currentTime) return
+    const source = map.getSource('wx')
+    if (!source || !source.updateImage) return
+    const view = wmsViewport()
+    if (!view) return
+    source.updateImage({ url: view.url, coordinates: view.coordinates })
   })
 }
 
@@ -198,22 +264,31 @@ async function showProduct() {
     setStatus(error.message, true)
     return
   }
+  // wmsViewport() needs this so a later map move can rebuild the URL without
+  // another metadata lookup.
+  currentTime = time
 
-  const source = {
-    type: 'raster',
-    tiles: [
-      protocol === 'tms'
-        ? tmsTemplate(selected.code, selected.config, time)
-        : wmsTemplate(selected.code, selected.config, time)
-    ],
-    tileSize: 256,   // must match width/height in baron.js's wmsTemplate
-    attribution: '&copy; Baron Weather'
+  if (protocol === 'tms') {
+    map.addSource('wx', {
+      type: 'raster',
+      tiles: [tmsTemplate(selected.code, selected.config, time)],
+      tileSize: 256,
+      scheme: 'tms',   // Baron TMS rows run bottom-up
+      attribution: '&copy; Baron Weather'
+    })
+  } else {
+    const view = wmsViewport()
+    // A momentarily unsized container (width or height of 0) would build a bad
+    // URL. Bail out rather than request one — the next Refresh or map move
+    // tries again.
+    if (!view) {
+      resetLegend()
+      setStatus('Map has no size yet — try Refresh', true)
+      return
+    }
+    map.addSource('wx', { type: 'image', url: view.url, coordinates: view.coordinates })
   }
-  // Baron TMS rows run bottom-up. WMS is addressed by bounding box, so it uses
-  // the default scheme.
-  if (protocol === 'tms') source.scheme = 'tms'
 
-  map.addSource('wx', source)
   map.addLayer({ id: 'wx', type: 'raster', source: 'wx' }, LABEL_LAYER)
 
   setStatus(`Valid ${time}`)

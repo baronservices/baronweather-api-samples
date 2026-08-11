@@ -179,7 +179,11 @@ export function tmsTemplate(product, config, time) {
 }
 
 /**
- * WMS GetMap template.
+ * One WMS GetMap URL covering one bbox at one pixel size.
+ *
+ * Unlike tmsTemplate this returns a complete URL rather than a template. WMS
+ * serves a single image for a single view, so app.js rebuilds this on every map
+ * move instead of letting MapLibre request a pyramid of 256px tiles.
  *
  * Three things this endpoint insists on, all verified against the live service:
  *
@@ -189,20 +193,23 @@ export function tmsTemplate(product, config, time) {
  *   - VERSION must be 1.3.0. Version 1.1.1 is rejected outright.
  *   - CRS=EPSG:3857 is the only projection offered. EPSG:4326 is rejected.
  *
- * {bbox-epsg-3857} is a MapLibre placeholder, filled in per tile by MapLibre.
- * The instance time is substituted here.
+ * Two further limits verified against the service:
+ *   - WIDTH and HEIGHT are capped at 3000; 3001 returns 400 InvalidParameter.
+ *   - A bbox whose aspect ratio disagrees with width/height still returns 200
+ *     and silently distorts the image, so the caller must derive one from the
+ *     other rather than trusting an error to appear.
  *
- * Returned unsigned, like tmsTemplate.
+ * Returned unsigned, like tmsTemplate — transformRequest signs it per request.
  */
-export function wmsTemplate(product, config, time) {
+export function wmsImageUrl(product, config, time, bbox, width, height) {
   const query = [
     'service=WMS',
     'version=1.3.0',
     'request=GetMap',
     'crs=EPSG:3857',
-    'bbox={bbox-epsg-3857}',
-    'width=256',    // must match tileSize in app.js's createMap source
-    'height=256',
+    `bbox=${bbox.join(',')}`,
+    `width=${width}`,
+    `height=${height}`,
     'format=image/png',
     'transparent=true',
     `layers=${encodeURIComponent(time)}`
