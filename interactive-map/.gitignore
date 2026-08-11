@@ -1,0 +1,13 @@
+# Credentials. Never commit these. env.example is the template and is tracked.
+#
+# The root .gitignore already covers this, and these rules are deliberately
+# redundant: a samples folder tends to get lifted out of its repository, and the
+# page fetches .env over HTTP, so the protection should travel with the folder
+# rather than depend on a file one level up.
+.env
+
+# File-safety backups.
+backup/
+
+# macOS
+.DS_Store
