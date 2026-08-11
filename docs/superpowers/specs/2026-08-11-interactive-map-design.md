@@ -137,6 +137,15 @@ Legend availability differs per product, and the app must handle all three cases
 | `goes-east-fulldisk-hires-ir` | 254 entries, every `value` is the string `Undefined` |
 | `lightning-heatmap-global` | None. The CDN returns `403 AccessDenied` |
 
+The absence for `lightning-heatmap-global` was confirmed exhaustively: 403 on four config names, on six filename variants, and on five API-side legend endpoints, while a control product returns 200 from the same path shape. WMS is no fallback either — the service answers
+`400 OperationNotSupported` for `GetLegendGraphic`, and its `GetCapabilities` advertises no
+`LegendURL` and no `<Style>` blocks.
+
+Note the CDN returns `403 AccessDenied` rather than `404` because the bucket denies
+`ListBucket`. From outside, a missing object and a forbidden one are indistinguishable, so a
+client cannot tell "no legend exists" from "no permission" — and does not need to, since
+neither yields a legend to draw.
+
 ## 3. Products
 
 All three verified on `Standard-Mercator`, on both TMS and WMS, returning `image/png`.
@@ -305,7 +314,8 @@ not pad the row.
 | `crypto.subtle` is missing | Panel says signing needs a secure context and names `http://localhost:8000`. See below |
 | Instance lookup fails or is empty | Message in the panel. Layer stays off. Other products stay selectable |
 | MapLibre reports repeated tile errors | The `error` handler calls `refreshSignature()`, then logs. A 403 storm means an expired signature |
-| Legend 403 or 404 | The `No legend published` line. Not an error, not a console warning |
+| Legend 403 or 404 | The `No legend published` line. Silent — no console warning. Verified as the normal, permanent state for `lightning-heatmap-global` |
+| Any other legend failure | The same panel line, plus a `console.warn` naming the cause. A network error, malformed JSON, or a missing `palettes[0].entries` must not hide behind the silence that a genuinely absent legend earns |
 
 Every message is plain text in the panel. The map never silently shows nothing.
 

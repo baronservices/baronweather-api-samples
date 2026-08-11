@@ -968,9 +968,29 @@ async function showLegend() {
   let entries
   try {
     const response = await fetch(legendUrl(selected.code, selected.config))
-    if (!response.ok) throw new Error('no legend')
+
+    // Some products publish no legend at all. The CDN answers 403 rather than
+    // 404 because the bucket denies listing, so "missing" and "forbidden" look
+    // identical from outside. Either way there is nothing to draw, and for
+    // lightning-heatmap-global this is the normal, permanent state — verified
+    // against the CDN — so it is not worth a console warning.
+    if (response.status === 403 || response.status === 404) {
+      note.textContent = 'No legend published for this product.'
+      return
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
     entries = (await response.json()).palettes[0].entries
-  } catch {
+    if (!Array.isArray(entries) || !entries.length) {
+      throw new Error('legend has no palette entries')
+    }
+  } catch (error) {
+    // Anything else — a network failure, malformed JSON, or an unexpected
+    // document shape — is a real problem and must not hide behind the same
+    // silence as a product that simply has no legend.
+    console.warn('legend fetch failed:', error.message)
     note.textContent = 'No legend published for this product.'
     return
   }
@@ -1174,6 +1194,17 @@ Quality varies, and a client has to cope with all three cases:
 | `C39-0x0302-0` | 15 entries, all labelled, `5 dBZ` to `75 dBZ` in 5 dBZ steps |
 | `goes-east-fulldisk-hires-ir` | 254 entries, every label is the string `Undefined` |
 | `lightning-heatmap-global` | None. The CDN returns `403 AccessDenied` |
+
+Two things worth knowing about the missing case:
+
+- The CDN answers `403 AccessDenied` rather than `404` because the bucket denies `ListBucket`.
+  A missing object and a forbidden one look identical from outside.
+- **WMS is not a fallback.** This service answers `400 OperationNotSupported` for
+  `GetLegendGraphic`, and its `GetCapabilities` advertises no `LegendURL` and no `<Style>`
+  blocks. If the CDN has no legend, there is no legend.
+
+So a client must treat "no legend" as a normal state, not an error. This app stays silent on a
+403 or 404 and logs anything else.
 
 ## Verification
 
