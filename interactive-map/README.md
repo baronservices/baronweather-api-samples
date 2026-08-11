@@ -101,12 +101,23 @@ bottom-up, so a MapLibre raster source needs `scheme: 'tms'`.
 /v1/{key}/wms/{product}/{config}
   ?service=WMS&version=1.3.0&request=GetMap
   &crs=EPSG:3857&bbox={minx},{miny},{maxx},{maxy}
-  &width=256&height=256&format=image/png&transparent=true
+  &width={w}&height={h}&format=image/png&transparent=true
   &layers={instance time}
 ```
 
-MapLibre fills the bbox in per tile — pass `bbox={bbox-epsg-3857}` in the raster source template
-and it substitutes each tile's bounds.
+This demo requests **one image for the whole view** — a single `GetMap` sized to the map
+container, rebuilt on `moveend` — rather than tiling WMS into a pyramid. That is what WMS is
+designed for: one image per view, in contrast to TMS's pyramid of fixed 256px tiles at fixed
+zoom levels. MapLibre also offers a `{bbox-epsg-3857}` template token that fills in per tile for
+anyone who *does* want to tile WMS; this app does not use it, but the token still exists if you do.
+
+Two further limits, both verified against the live service:
+
+- **`WIDTH`/`HEIGHT` are capped at 3000.** `3001` returns `400 InvalidParameter: exceeds the
+  maximum allowable value of 3000`. This matches `GetCapabilities`'s `MaxWidth`/`MaxHeight`.
+- **A bbox whose aspect ratio disagrees with `width`/`height` still returns HTTP 200** and
+  silently distorts the image. There is no error to catch — the caller must derive one dimension
+  from the other rather than trusting the service to complain.
 
 Three traps:
 
@@ -174,3 +185,7 @@ automatic polling for new instances — the Refresh button covers that.
 
 `setInterval` does not fire while the machine sleeps, so after a long sleep the cached signature
 can be stale and tiles may fail until you click Refresh.
+
+In WMS mode, one image covers one view. During a pan or zoom the old image stretches to fill the
+new viewport, then snaps to the freshly fetched image once it arrives at `moveend`. Tiled TMS does
+not do this — each tile is independent, so only the tiles entering the view need to load.
