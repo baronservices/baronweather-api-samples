@@ -6,6 +6,7 @@
  */
 
 export const API_BASE = 'https://api.velocityweather.com/v1'
+const LEGEND_BASE = 'https://static.velocityweather.com/legends'
 
 // The API accepts a signature for about 15 minutes either side of now, so
 // renewing every 5 minutes leaves a wide margin.
@@ -194,4 +195,19 @@ export function wmsTemplate(product, config, time) {
     `layers=${encodeURIComponent(time)}`
   ].join('&')
   return `${API_BASE}/${credentials.key}/wms/${product}/${config}?${query}`
+}
+
+/**
+ * The legend document for a product.
+ *
+ * Public, and takes no signature — note this URL is not under API_BASE, so
+ * transformRequest leaves it alone.
+ *
+ * Shape: {"palettes": [{"entries": [{"color": "#rrggbbaa", "value": "5 dBZ"}]}]}
+ *
+ * This is a different document from the geotiff_legend.json that geotiff_fetch
+ * uses.
+ */
+export function legendUrl(product, config) {
+  return `${LEGEND_BASE}/${product}/${config}/legend.json`
 }
