@@ -114,9 +114,29 @@ async function showLegend() {
   let entries
   try {
     const response = await fetch(legendUrl(selected.code, selected.config))
-    if (!response.ok) throw new Error('no legend')
+
+    // Some products publish no legend at all. The CDN answers 403 rather than
+    // 404 because the bucket denies listing, so "missing" and "forbidden" look
+    // identical from outside. Either way there is nothing to draw, and for
+    // lightning-heatmap-global this is the normal, permanent state — verified
+    // against the CDN — so it is not worth a console warning.
+    if (response.status === 403 || response.status === 404) {
+      note.textContent = 'No legend published for this product.'
+      return
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
     entries = (await response.json()).palettes[0].entries
-  } catch {
+    if (!Array.isArray(entries) || !entries.length) {
+      throw new Error('legend has no palette entries')
+    }
+  } catch (error) {
+    // Anything else — a network failure, malformed JSON, or an unexpected
+    // document shape — is a real problem and must not hide behind the same
+    // silence as a product that simply has no legend.
+    console.warn('legend fetch failed:', error.message)
     note.textContent = 'No legend published for this product.'
     return
   }
