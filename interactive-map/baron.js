@@ -116,7 +116,14 @@ export function signQuery() {
 
 /** Sign a URL that our own code fetches. MapLibre requests are signed by the hook. */
 function signed(url) {
-  return url + (url.includes('?') ? '&' : '?') + signQuery()
+  // Same guard as transformRequest in app.js: before the first signature is
+  // computed there is nothing to append, and a malformed query is harder to
+  // diagnose than a clear failure. latestInstance's caller shows this message.
+  const query = signQuery()
+  if (!query) {
+    throw new Error('No signature yet — credentials are still loading')
+  }
+  return url + (url.includes('?') ? '&' : '?') + query
 }
 
 /**
@@ -155,4 +162,36 @@ export async function latestInstance(product, config) {
 export function tmsTemplate(product, config, time) {
   const layer = `${product}+${config}+${time}`
   return `${API_BASE}/${credentials.key}/tms/1.0.0/${layer}/{z}/{x}/{y}.png`
+}
+
+/**
+ * WMS GetMap template.
+ *
+ * Three things this endpoint insists on, all verified against the live service:
+ *
+ *   - LAYERS is the instance timestamp, NOT the product code. GetCapabilities
+ *     lists each available instance time as a nested layer name. Passing the
+ *     product code returns 400 InvalidParameter.
+ *   - VERSION must be 1.3.0. Version 1.1.1 is rejected outright.
+ *   - CRS=EPSG:3857 is the only projection offered. EPSG:4326 is rejected.
+ *
+ * {bbox-epsg-3857} is a MapLibre placeholder, filled in per tile by MapLibre.
+ * The instance time is substituted here.
+ *
+ * Returned unsigned, like tmsTemplate.
+ */
+export function wmsTemplate(product, config, time) {
+  const query = [
+    'service=WMS',
+    'version=1.3.0',
+    'request=GetMap',
+    'crs=EPSG:3857',
+    'bbox={bbox-epsg-3857}',
+    'width=256',
+    'height=256',
+    'format=image/png',
+    'transparent=true',
+    `layers=${encodeURIComponent(time)}`
+  ].join('&')
+  return `${API_BASE}/${credentials.key}/wms/${product}/${config}?${query}`
 }
