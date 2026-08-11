@@ -40,6 +40,31 @@ export BARON_ACCESS_KEY=...
 export BARON_ACCESS_KEY_SECRET=...
 ```
 
+### Credentials
+
+Copy the example file and fill in your own key and secret:
+
+```bash
+cp env.example .env
+```
+
+These scripts read the **environment**, not a file — there is no `.env` loader here. So
+load it into the shell first:
+
+```bash
+set -a; source .env; set +a
+```
+
+Two things to watch:
+
+- The variable names are `BARON_ACCESS_KEY` / `BARON_ACCESS_KEY_SECRET`. The sibling
+  `baron_alert_geometry` tools use `BARON_API_KEY` / `BARON_API_SECRET` and read a `.env`
+  file directly. One `.env` will not serve both folders unless it carries both pairs.
+- `geotiff_fetch.py` raises an error naming `--access-key` and `--access-key-secret`
+  flags. Those flags are not defined in its argument parser. Use the environment.
+
+`.gitignore` excludes `.env`, so your filled-in copy is never committed.
+
 ---
 
 ## The BGG daily data model

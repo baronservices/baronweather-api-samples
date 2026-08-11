@@ -1,3 +1,6 @@
+# Credentials. Never commit these. env.example is the template and is tracked.
+.env
+
 # File-safety backups
 backup/
 
