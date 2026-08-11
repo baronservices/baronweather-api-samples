@@ -10,6 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-11-interactive-map-design.md`
 
+> **Status: executed, then superseded in part.** All six tasks below were carried out as written,
+> so this document remains the record of what was built and why the commits look as they do. The
+> app has since changed — most substantially, WMS no longer tiles. **Do not treat the code blocks
+> below as current.** For the app as it stands, read the spec, or the source itself. See
+> *Amendments after execution* at the end of this file for what changed.
+
 ## Global Constraints
 
 - **Working folder:** `interactive-map/`. All source paths below are relative to the repository root.
@@ -1305,3 +1311,62 @@ Spec coverage, section by section:
 Two spec details deliberately not implemented, both stated as out of scope in section 1: no instance polling timer, and no `/meta/maps/` fallback.
 
 Names are consistent across tasks: `showProduct`, `showLegend`, `buildProducts`, `buildProtocolToggle`, `setStatus`, `createMap`, `el`, `signQuery`, `refreshSignature`, `startSigning`, `loadCredentials`, `parseEnv`, `latestInstance`, `tmsTemplate`, `wmsTemplate`, `legendUrl`. Source and layer ids are both `wx`. The insertion anchor is `LABEL_LAYER` = `geolines-label`.
+
+(`wmsTemplate` in that list was later replaced by `wmsImageUrl` — see below.)
+
+---
+
+## Amendments after execution
+
+What changed after the six tasks were done, and why. The tasks above are left as executed; this
+section is the delta. The spec and `interactive-map/README.md` describe the current state.
+
+### The final whole-branch review (three Important findings, all fixed)
+
+Each was a shortfall against a promise the spec itself made, rather than a production concern the
+spec had excluded:
+
+1. **`showProduct()` had no `.catch()` at any call site.** Its internal `try` covered only the
+   instance lookup, so a later throw left the panel reading `Loading …` with the reason only in
+   the console — against the spec's "the map never silently shows nothing". Now every entry point
+   goes through a `redraw` wrapper that catches into the panel.
+2. **`parseEnv` did not strip surrounding quotes**, while `geotiff_fetch/baron_geotiff.py` does.
+   Since one `.env` is advertised as serving every folder here, `KEY="abc"` worked in the Python
+   tools and silently signed wrong in the browser. Now stripped, matching the sibling.
+3. **A 403 from the metadata endpoint reported `No instances for <product>`**, misdirecting the
+   three likeliest first-run failures: an unentitled key, a quoted secret, and a system clock more
+   than ~15 minutes out. 401/403 now name all three.
+
+Smaller items from the same review: the legend is cleared when a lookup fails; a readiness flag
+stops a control click replacing the setup message with a null dereference; a comment records the
+`tileSize`/`width` coupling across the two files.
+
+### WMS became a single image (owner request)
+
+> "the WMS should pull a single image, not multiple tiled WMS images."
+
+Correct, and it sharpens the demo — tiling WMS blurs the very TMS-versus-WMS distinction the page
+exists to show. Task 4's `wmsTemplate`, which embedded MapLibre's `{bbox-epsg-3857}` token with
+`width=256&height=256`, was **deleted** and replaced by `wmsImageUrl(product, config, time, bbox,
+width, height)`, returning one complete GetMap URL for the current view. WMS now uses a MapLibre
+`image` source refreshed by a persistent `moveend` handler. TMS is untouched.
+
+Two service limits were measured and now constrain the code: `WIDTH`/`HEIGHT` cap at 3000
+(`3001` → `400 InvalidParameter`), and a bbox whose aspect disagrees with `width`/`height` returns
+200 while silently distorting, so height is derived from the bbox aspect.
+
+### A shipped geometry bug, found in review and fixed
+
+The first cut of the above clamped longitude and latitude inside `toMercator()`, which built the
+**bbox**, but built the image's **coordinates** from the raw unclamped `getBounds()` values. The
+image therefore covered one rectangle and was placed on another, and MapLibre stretched the pixels
+across the difference — roughly 1.4× at low zoom on any landscape window, and 1.2× at *any* zoom
+near the antimeridian, since MapLibre leaves longitude unconstrained by default.
+
+Fixed by clamping once and feeding the same four values to both, with the clamps removed from
+`toMercator` so exactly one clamp site remains. Two clamp sites is what caused it.
+
+Worth recording as a process note: the round of verification that missed this ran at the default
+zoom 3 centred on North America, where the clamp never fires, and its zoom test moved *inward* —
+away from the failure band. "No misalignment observed" was true about a region of state space that
+excluded both triggers. Verification has to visit the failure, not the happy path.

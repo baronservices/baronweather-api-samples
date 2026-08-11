@@ -39,7 +39,7 @@ of the page.
 | File | Purpose |
 |---|---|
 | `index.html` | Panel markup, styles, MapLibre tags |
-| `baron.js` | Credentials, signing, instance lookup, URL building. Knows nothing about MapLibre |
+| `baron.js` | Credentials, signing, instance lookup, URL building. Calls no MapLibre API |
 | `app.js` | Products, map, panel, legend. Knows nothing about signing |
 
 ## Products
@@ -171,8 +171,20 @@ So a client must treat "no legend" as a normal state, not an error. This app sta
 8. Leave the page open for 20 minutes, then pan. Tiles still load. This is the check that
    proves per-request signing works.
 9. Rename `.env` and reload. The panel shows the setup message and the basemap still loads.
+10. In WMS mode, exactly **one** `request=GetMap` fires per settled move, sized to the viewport.
+11. In WMS mode, zoom out to around z1. The overlay stays registered against the basemap, with
+    blank margins where the map wraps — not stretched to fill them.
+12. In WMS mode, pan to around longitude ±175 at a working zoom. The overlay still registers.
 
-Step 8 is the one that catches the mistake this design exists to avoid.
+Step 8 catches the signing mistake this design exists to avoid. Steps 11 and 12 catch a geometry
+mistake this app shipped once: they are the only two camera positions where a mismatch between the
+requested bbox and the placed image corners becomes visible, and the default view reaches neither.
+
+A shortcut for both: GOES East's full-disk imagery is a circle, so any horizontal stretch shows up
+immediately as an ellipse — no coastline comparison needed.
+
+The common thread across 8, 11, and 12 is that each visits a state the default view never reaches.
+Verification that only exercises the opening screen will pass while any of these bugs is present.
 
 ## Limitations
 

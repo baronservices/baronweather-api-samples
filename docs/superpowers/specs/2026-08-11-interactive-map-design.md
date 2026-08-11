@@ -88,13 +88,18 @@ row order is TMS, so the MapLibre source needs `scheme: 'tms'`.
     &version=1.3.0
     &request=GetMap
     &crs=EPSG:3857
-    &bbox={bbox-epsg-3857}
-    &width=256
-    &height=256
+    &bbox=<minx>,<miny>,<maxx>,<maxy>
+    &width=<viewport px>
+    &height=<derived from the bbox aspect>
     &format=image/png
     &transparent=true
     &layers=<instance time>
 ```
+
+**One image per view, not a tile pyramid.** This is what WMS is designed for, and it is the
+contrast the whole app exists to show: TMS serves fixed 256-pixel tiles at fixed zoom levels,
+WMS serves one image for one arbitrary view. MapLibre does offer a `{bbox-epsg-3857}` template
+token that would let a raster source tile WMS instead, and this app deliberately does not use it.
 
 Three traps, all confirmed:
 
@@ -106,9 +111,15 @@ Three traps, all confirmed:
 - **`CRS=EPSG:3857` is the only projection offered.** `EPSG:4326` and `EPSG:900913` are
   rejected.
 
-`{bbox-epsg-3857}` is a **MapLibre** placeholder, substituted per tile by MapLibre. The
-instance time is substituted by our code when the template is built. Pass the time through
-`encodeURIComponent`; raw colons also work, but encoding is safer.
+Pass the instance time through `encodeURIComponent`; raw colons also work, but encoding is safer.
+
+Two further limits, both measured:
+
+- **`WIDTH` and `HEIGHT` are capped at 3000.** `3001` returns
+  `400 InvalidParameter: exceeds the maximum allowable value of 3000`, matching `GetCapabilities`.
+- **A bbox whose aspect ratio disagrees with `width`/`height` still returns HTTP 200, and
+  silently distorts the image.** There is no error to catch, so the caller must derive one
+  dimension from the other rather than waiting for the service to complain.
 
 `GetCapabilities` also reports `LayerLimit 1`, `MaxWidth 3000`, and `MaxHeight 3000`. A
 256-pixel tile is well inside those limits.
@@ -178,10 +189,11 @@ responsibility.
 The split that matters: `baron.js` calls no MapLibre API, and `app.js` computes no signature.
 Each file can be read on its own.
 
-Stated precisely, because "never references MapLibre" would overclaim: `baron.js` does embed two
-MapLibre URL tokens, `{z}/{x}/{y}` in the TMS template and `{bbox-epsg-3857}` in the WMS one, so
-the templates are not renderer-portable. What it never does is call a MapLibre function or touch
-a map object.
+Stated precisely, because "never references MapLibre" would overclaim: `baron.js` does embed
+MapLibre's `{z}/{x}/{y}` tokens in the TMS template, so that template is not renderer-portable.
+What it never does is call a MapLibre function or touch a map object. The WMS URL carries no
+MapLibre tokens at all — it is a complete GetMap request — but the Mercator maths that produces
+its bbox lives in `app.js`, because it exists to serve MapLibre's camera.
 
 The root `.gitignore` already ignores `.env` at any depth. No change needed.
 
@@ -210,9 +222,14 @@ export async function refreshSignature()
 // Newest instance time for a product, e.g. "2026-08-11T16:20:38Z". Throws if none exist.
 export async function latestInstance(product, config)
 
-// Unsigned URL templates.
+// Unsigned TMS tile template, with MapLibre's {z}/{x}/{y} left in place.
 export function tmsTemplate(product, config, time)
-export function wmsTemplate(product, config, time)
+
+// One unsigned WMS GetMap URL, complete rather than a template: WMS serves a
+// single image for a single view, so app.js rebuilds this on every map move.
+// bbox is [minx, miny, maxx, maxy] in EPSG:3857; width and height are capped at
+// 3000 and must match the bbox aspect or the service silently distorts the image.
+export function wmsImageUrl(product, config, time, bbox, width, height)
 
 // Public legend URL. Needs no signature.
 export function legendUrl(product, config)
@@ -259,19 +276,53 @@ One weather layer at a time. Fixed ids: source `wx`, layer `wx`.
 
 **One code path**, used by product change, protocol change, and Refresh alike:
 
-1. Remove layer `wx` and source `wx` if they exist.
-2. Resolve the newest instance time.
-3. Build the TMS or WMS template.
-4. Add the raster source. TMS adds `scheme: 'tms'`; WMS leaves the default. Both use
-   `tileSize: 256` and the attribution `&copy; Baron Weather`.
-5. Add the raster layer before `geolines-label`.
-6. Update the valid-time text and the legend.
+1. Remove layer `wx` and source `wx` if they exist. This ordering matters: the `moveend`
+   handler below relies on the source being absent for the whole of step 2.
+2. Resolve the newest instance time, and remember it — a later map move rebuilds the WMS URL
+   from it without another metadata lookup.
+3. Add the source, which is where the two protocols diverge:
+   - **TMS** — `type: 'raster'`, `tiles: [template]`, `tileSize: 256`, `scheme: 'tms'`, and the
+     attribution `&copy; Baron Weather`.
+   - **WMS** — `type: 'image'`, with a `url` for the current view and the four `coordinates` of
+     that view. An image source accepts only `url` and `coordinates`, so it carries no
+     attribution; `addSource` rejects the property outright.
+4. Add the raster layer before `geolines-label`, with `raster-fade-duration: 0`. A raster layer
+   renders both source types, and the zero fade stops the image flashing when it is replaced.
+5. Update the valid-time text and the legend.
 
-`scheme` cannot be changed after a source is created, so a protocol switch has to re-add the
-source. Using the same path everywhere keeps the code to one function instead of adding
-`setTiles` for a second case.
+Every entry point calls this through a wrapper that catches — `showProduct()` is async, and a
+throw after step 2 would otherwise leave the panel reading `Loading …` with the reason only in
+the console.
 
-### 6.1 Map setup
+`scheme` cannot be changed after a source is created, and the two protocols now need different
+source types anyway, so any switch re-adds the source. One path stays simpler than two.
+
+### 6.1 Keeping the WMS image current
+
+A tiled source re-requests tiles for a new view by itself. A single image does not, so one
+persistent `moveend` handler rebuilds it. The handler no-ops unless the protocol is WMS, so it
+never needs attaching and detaching — a listener that is never removed cannot leak.
+
+Updating goes through `ImageSource.updateImage({url, coordinates})`, which aborts any in-flight
+request and applies the new coordinates only once the new image loads. So the URL and the corners
+commit together, and a slow response can never leave the pair mismatched. Until it lands, the
+previous image stays pinned to its own geographic corners — scaling and blurring on zoom, leaving
+the newly revealed edge blank on pan, rather than stretching to fill the new view.
+
+**The bbox and the coordinates must be built from the same four numbers.** Clamp
+`getBounds()` once to ±180 longitude and ±85.05112878 latitude, then feed those exact values to
+both. This is not defensive tidiness — it is a bug this project actually shipped and had to fix.
+`getBounds()` runs past ±180 whenever the viewport is wider than the world, and, because
+MapLibre leaves longitude unconstrained by default, at *any* zoom near the antimeridian. When the
+bbox was clamped and the corners were not, the image covered one rectangle and was placed on
+another, and the whole overlay stretched — 1.4× at low zoom, 1.2× near the antimeridian. Keep
+exactly one clamp site; two is what caused it.
+
+Height comes from the **bbox** aspect, never the canvas aspect, so camera rotation cannot distort
+the image. Both dimensions clamp to 3000. Guard against a zero or negative size rather than
+sending a malformed URL.
+
+### 6.2 Map setup
 
 - MapLibre GL 5.24.0 from
   `https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js` plus its CSS.
@@ -322,7 +373,10 @@ not pad the row.
 | `fetch` of `.env` throws | Panel names the fix: `python3 -m http.server 8000`. This is what a `file://` open looks like |
 | `.env` has no usable key pair | Same message as a missing `.env` |
 | `crypto.subtle` is missing | Panel says signing needs a secure context and names `http://localhost:8000`. See below |
-| Instance lookup fails or is empty | Message in the panel. Layer stays off. Other products stay selectable |
+| Instance lookup returns 401 or 403 | Panel names the three real causes: the key's entitlement, a malformed secret, and a system clock more than ~15 minutes out. Reporting this as "no instances" misdirects every first-run failure |
+| Instance lookup fails otherwise, or is empty | Message in the panel. Layer stays off. Other products stay selectable. The legend is cleared too, so it cannot describe the previous product beside an error for a new one |
+| A throw anywhere else in the redraw | Every entry point calls `showProduct()` through a wrapper that catches into the panel. Without it an `addSource` collision, a missing basemap anchor, or an unloaded style leaves the panel reading `Loading …` with the reason only in the console |
+| A control is clicked before credentials load | A readiness flag makes the handler return early, so the setup message stays put instead of being replaced by a null dereference from deeper in the stack |
 | MapLibre reports repeated tile errors | The `error` handler calls `refreshSignature()`, then logs. A 403 storm means an expired signature |
 | Legend 403 or 404 | The `No legend published` line. Silent — no console warning. Verified as the normal, permanent state for `lightning-heatmap-global` |
 | Any other legend failure | The same panel line, plus a `console.warn` naming the cause. A network error, malformed JSON, or a missing `palettes[0].entries` must not hide behind the silence that a genuinely absent legend earns |
@@ -361,5 +415,17 @@ browser.
 8. Leave the page open for 20 minutes, then pan. Tiles still load. This is the check that
    proves per-request signing works.
 9. Rename `.env` and reload. The panel shows the setup message and the basemap still loads.
+10. In WMS mode, exactly **one** `request=GetMap` per settled move, sized to the viewport.
+11. In WMS mode, zoom out to around z1. The overlay stays correctly registered against the
+    basemap, with blank margins where the map wraps — not stretched to fill them.
+12. In WMS mode, pan to around longitude ±175 at a working zoom. The overlay still registers.
 
-Step 8 is the one that catches the mistake this design exists to avoid.
+Step 8 catches the signing mistake this design exists to avoid. Steps 11 and 12 catch the
+geometry mistake this app actually shipped once: they are the two camera positions where a
+mismatch between the requested bbox and the placed corners becomes visible, and neither is
+reachable from the default view. A useful shortcut for both — GOES East's full-disk imagery is a
+circle, so any horizontal stretch shows up immediately as an ellipse, with no coastline
+comparison needed.
+
+Steps 8, 11, and 12 share a lesson worth stating: each visits a state the happy path never
+reaches. Verification that only exercises the default view will pass while the bug is present.
