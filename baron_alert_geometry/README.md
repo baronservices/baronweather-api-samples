@@ -1,13 +1,16 @@
 # Baron Velocity Weather — Alert Zones & Alert Reports
 
-Three tools for the Velocity Weather alert API:
+Tools for the Velocity Weather alert API:
 
 | script | what it does |
 |---|---|
 | `baron_zones_fetch.py` | Fetches all NWS alert zone geometry into an indexed GeoPackage |
 | `verify_zones.py` | Verifies a fetch for completeness and measures read performance |
-| `baron_alerts_report.py` | Walks all alert pages and writes one JSON report with per-polygon centroids |
+| `baron_alerts_report.py` | Walks all alert pages and writes a JSON report plus a centroid GeoPackage and a raw-geometry GeoPackage |
+| `zone_geometry.py` | Retrieves the geometry of one or more zone ids |
+| `check_alerts.py` | Cron-ready: runs the report, then checks the JSON and both GeoPackages |
 | `refresh_zones.sh` | Cron-ready: refetches only the zone types whose version changed |
+| `selftest.py` | Offline test suite. No network, no credentials |
 
 See `KNOWN_ISSUES.md` for open items and for the API quirks these tools work around.
 
@@ -30,7 +33,8 @@ BARON_API_SECRET=your_secret
 BARON_API_BASE_URL=https://api.velocityweather.com
 ```
 
-`.gitignore` excludes `.env`, `zones_out/`, and the generated reports.
+`.gitignore` excludes `.env`, `zones_out/`, the generated reports, and every `*.gpkg`
+and `*.fgb`. All of those are script output.
 
 `BARON_API_KEY` / `BARON_API_SECRET` / `BARON_API_BASE_URL` in the environment override
 the file. Check GDAL with:
@@ -169,16 +173,55 @@ full scan (11,891)      132 ms
 ## 3. `baron_alerts_report.py` — alerts with centroids
 
 ```bash
-python3 baron_alerts_report.py                     # -> alerts_report.json
+python3 baron_alerts_report.py                     # JSON + both GeoPackages
 python3 baron_alerts_report.py --product all-poly  # include storm-based polygons
-python3 baron_alerts_report.py --include-geometry   # embed polygons (much larger)
+python3 baron_alerts_report.py --no-gpkg           # JSON only
+python3 baron_alerts_report.py --gpkg-dir out      # GeoPackages into out/
+python3 baron_alerts_report.py --include-geometry   # embed polygons in the JSON
 python3 baron_alerts_report.py --no-text            # drop bulletin text
 python3 baron_alerts_report.py --geometry-source api  # ignore the local GeoPackage
 ```
 
 Walks every page of the alert feed, resolves the polygon(s) behind each alert, computes
-a centroid per polygon plus one combined centroid per alert, and writes a single JSON
-file. A run takes ~12 s.
+a centroid per polygon plus one combined centroid per alert, and writes three files.
+A run takes ~12 s.
+
+### Output files
+
+```
+alerts_report.json      the full report, every polygon with its centroid
+alerts_centroids.gpkg   layer polygon_centroids  one point per polygon
+                        layer alert_centroids    one point per alert
+alerts_geometry.gpkg    layer alert_polygons     the raw polygon of each
+```
+
+The centroid file answers *where is this alert*. The geometry file answers *what shape
+is it*. Both are EPSG:4326, and both are written next to `--out` unless `--gpkg-dir`
+says otherwise.
+
+All three files carry `record_key`, so they join to each other. The two polygon-level
+layers share one attribute schema, so a centroid row and its polygon row have identical
+columns. `alerts_centroids.gpkg` is indexed on `record_key`, `zone_id`, and `event_key`;
+`alerts_geometry.gpkg` on `record_key` and `zone_id`.
+
+```sql
+-- every polygon of one alert
+SELECT zone_id, zone_name FROM alert_polygons WHERE record_key = 'KCTP.FF.W.59:6f02ee4d';
+-- one dot per alert, for a map
+SELECT alert_types, centroid_lon, centroid_lat FROM alert_centroids;
+```
+
+```bash
+ogrinfo -so alerts_centroids.gpkg
+ogrinfo -so alerts_geometry.gpkg alert_polygons
+```
+
+`alert_polygons` is created as MULTIPOLYGON and every geometry is promoted to one. A
+mixed Polygon/MultiPolygon layer loses the odd feature out — the same trap
+`-nlt MULTIPOLYGON` guards against in `baron_zones_fetch.py`.
+
+`--no-gpkg` writes the JSON alone. It also stops the polygons being held in memory,
+which is the only reason to use it on a large product.
 
 ### Options
 
@@ -191,7 +234,9 @@ file. A run takes ~12 s.
 
 | `--from` | page 1's timestamp | pin the snapshot |
 | `--precision` | `6` | precision for API zone lookups |
-| `--include-geometry` | off | embed full polygons; output grows to tens of MB |
+| `--include-geometry` | off | embed full polygons in the JSON; output grows to tens of MB |
+| `--no-gpkg` | off | skip both GeoPackages, write the JSON alone |
+| `--gpkg-dir` | beside `--out` | directory for the two GeoPackages |
 | `--no-text` | off | omit bulletin text |
 | `--indent` | `2` | `0` for compact JSON |
 
@@ -227,6 +272,11 @@ carry a polygon tighter than the county zones they list — use `all-poly` if yo
     "source":  { "product": "all", "snapshot_from": "...", "pages": 7 },
     "geometry":{ "zones_geopackage": "...", "zone_shapefile_versions": {...} },
     "centroid_method": { "per_polygon": "...", "per_alert": "..." },
+    "outputs": { "json": "alerts_report.json",
+                 "centroids_geopackage": { "path": "...", "polygon_centroids": 1515,
+                                           "alert_centroids": 132, "bytes": 0 },
+                 "geometry_geopackage":  { "path": "...", "features": 1515, "bytes": 0 },
+                 "join_key": "record_key" },
     "counts":  { "alerts": 132, "polygons": 1515, "unresolved_zone_references": 31 }
   },
   "alerts": [
@@ -316,6 +366,93 @@ place the current snapshot has none.
 
 ---
 
+## 4. `zone_geometry.py` — geometry by zone id
+
+```bash
+python3 zone_geometry.py ALC089                     # summary table
+python3 zone_geometry.py ALC089 PAC055 FMC001       # several ids
+python3 zone_geometry.py FMC001 --format geojson    # FeatureCollection
+python3 zone_geometry.py ALC089 --format wkt
+python3 zone_geometry.py WYZ277 --fire              # apply the Z -> F recode
+python3 zone_geometry.py ALC089 --gpkg-out zone.gpkg
+python3 zone_geometry.py --stdin < ids.txt          # one id per line
+```
+
+Reads `zones_out/zones.gpkg` and falls back to the live `zones/{id}` endpoint for
+anything the local copy does not hold. `--source gpkg` never calls the API and needs no
+credentials; `--source api` never reads the local copy.
+
+### Options
+
+| flag | default | notes |
+|---|---|---|
+| `--gpkg` | `zones_out/zones.gpkg` | zone geometry source |
+| `--source` | `auto` | `auto` GeoPackage then API, or force `gpkg` / `api` |
+| `--format` | `summary` | `summary`, `geojson`, `wkt`, or `json` without geometry |
+| `--fire` | off | resolve a Z-coded fire-weather zone to its F-coded FIRE twin first |
+| `--out` | stdout | write the output to a file |
+| `--gpkg-out` | — | also write the rows to a single-layer GeoPackage |
+| `--stdin` | off | also read ids from stdin, one per line |
+
+Exit code is 0 when every id resolved and 1 when any did not. Ids that failed are named
+on stderr.
+
+### Two behaviours to know
+
+**A zone id can return several rows.** 227 ids do. `FMC001` is six separate Micronesian
+islands under one code. Every row comes back as its own feature with its own centroid,
+tagged `row` and `rows_for_id`. Nothing is merged.
+
+**`--fire` matters and the order inside it matters.** NWS reuses zone numbers between the
+public and fire zone sets — 3,016 state+number pairs exist as both. So `ALZ001` is a real
+FORECAST zone *and* `ALF001` is a real FIRE zone.
+
+```
+python3 zone_geometry.py ALZ001            -> FORECAST, the cited zone
+python3 zone_geometry.py ALZ001 --fire     -> ALF001, FIRE
+```
+
+Use `--fire` only for a zone cited by a fire-weather alert. `baron_alerts_report.py`
+makes this decision for you from the VTEC phenomenon; here it is yours. A recoded row
+keeps the cited code in `zone_id` and reports the real one in `resolved_zone_id`, and the
+summary marks it with `*`.
+
+---
+
+## 5. `selftest.py` — offline tests
+
+```bash
+python3 selftest.py
+```
+
+```
+all 59 checks passed
+```
+
+No network and no credentials. It builds a synthetic `zones.gpkg` and a synthetic set of
+alert records, then drives the real code against them, so the answer is the same every
+time. Exit code 1 if any check fails.
+
+What it covers:
+
+| area | checks |
+|---|---|
+| geometry | re-nesting the API's under-nested polygons; antimeridian centroids; the combined centroid across 180° |
+| geopackage | layer names, counts, geometry types, lon/lat axis order, attribute round-trip, indexes, and area-in equals area-out |
+| record build | `keep_geometry` holds the polygon for the writer and `main()` strips it before the JSON |
+| lookup | by id, multi-row ids, the FORECAST/FIRE number collision in both directions, every output format, exit codes |
+| monitor | `check_alerts.py` catches a GeoPackage that disagrees with the JSON |
+
+The collision test is the one worth keeping. It asserts `ALZ001` resolves to FORECAST
+without `--fire` and to `ALF001` FIRE with it. Reversing that is the exact bug
+`KNOWN_ISSUES.md` item 1 describes, and a count-based test would not see it.
+
+The axis-order check is the other one. It asserts a written point has longitude in X.
+GDAL 3 defaults EPSG:4326 to authority axis order (lat, lon); the writers force
+traditional order. Without that, every point lands transposed.
+
+---
+
 ## Why GeoPackage
 
 Benchmarked at full scale (11,651 features, GDAL 3.13.1, min of 3–5 runs, warm cache):
@@ -371,6 +508,8 @@ grep ZONE_NOTFOUND  zones_out/baron_zones_fetch.log     # 404s
 grep TYPE_ROLLUP    zones_out/baron_zones_fetch.log     # per-type totals
 grep RUN_TOTAL      zones_out/baron_zones_fetch.log     # bandwidth summary
 grep ZONE_UNRESOLVED baron_alerts_report.log            # alerts citing absent zones
+grep GPKG_          baron_alerts_report.log            # GeoPackage row counts and sizes
+grep GPKG_GEOM_SKIPPED baron_alerts_report.log         # polygons with no usable geometry
 ```
 
 Warnings and errors also go to stderr. Files are backed up to `backup/` with a UTC
@@ -384,8 +523,15 @@ pass `--env /path/to/.env`.
 **`ogr2ogr not found on PATH`** — NDJSON is still staged. Install GDAL and rerun with
 `--resume` to convert without refetching.
 
-**`error: GDAL Python bindings required`** — `baron_alerts_report.py` and
-`verify_zones.py` need `osgeo`, not just the `ogr2ogr` binary.
+**`error: GDAL Python bindings required`** — `baron_alerts_report.py`,
+`zone_geometry.py`, `verify_zones.py`, and `selftest.py` need `osgeo`, not just the
+`ogr2ogr` binary.
+
+**A zone id does not resolve** — if it is a 6-character code with `Z` in position 3 and
+it comes from a fire-weather alert, add `--fire`. See section 4.
+
+**The GeoPackage row count disagrees with the JSON** — `check_alerts.py` reports this as
+an ERROR. Rerun the report; the two are written in one pass and cannot drift on their own.
 
 **A run died partway** — rerun with `--resume`. Failed ids are listed at the end of the
 run and in the log under `ZONE_FAILED`.

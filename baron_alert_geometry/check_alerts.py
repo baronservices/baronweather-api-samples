@@ -2,10 +2,13 @@
 """
 Run the alert report, then check it for errors. Made for cron.
 
-The script does three things:
+The script does four things:
   1. It runs baron_alerts_report.py.
   2. It checks alerts_report.json for problems.
-  3. It prints one line for each problem, with the tag ERROR or WARN.
+  3. It checks that the two GeoPackages hold the same row counts the JSON reports.
+     A silent disagreement between them is worse than a missing file, because
+     the map and the report then show different things.
+  4. It prints one line for each problem, with the tag ERROR or WARN.
 
 Exit codes:
   0  No problem found.
@@ -26,6 +29,7 @@ Cron, every 3 hours:
 import argparse
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -33,6 +37,11 @@ from datetime import datetime, timezone
 REPORT = 'alerts_report.json'
 SCRIPT = 'baron_alerts_report.py'
 ZONES_GPKG = os.path.join('zones_out', 'zones.gpkg')
+
+# The GeoPackages the report writes beside the JSON. A GeoPackage is a SQLite
+# file, so the row counts are read with sqlite3 and this script needs no GDAL.
+CENTROIDS_GPKG = 'alerts_centroids.gpkg'
+GEOMETRY_GPKG = 'alerts_geometry.gpkg'
 
 # An alert count below this value is unusual. The feed normally holds 100 or more.
 MIN_EXPECTED_ALERTS = 5
@@ -149,7 +158,59 @@ def check_report():
     if len(set(pages)) > 1:
         problem('WARN', f'the page count changed during the walk: {pages}')
 
-    return {'counts': counts, 'meta': meta, 'alerts': len(alerts)}
+    return {'counts': counts, 'meta': meta, 'alerts': len(alerts), 'data': data}
+
+
+def table_count(path, table):
+    """Row count of one GeoPackage table, or None if it cannot be read."""
+    try:
+        con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        return con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def check_geopackages(data):
+    """Check the two GeoPackages against the counts the JSON reports.
+
+    A count that disagrees means the JSON and the map layers describe different
+    things, which is worse than a missing file because it is not visible.
+    """
+    meta = data.get('meta') or {}
+    counts = meta.get('counts') or {}
+    outputs = meta.get('outputs') or {}
+    if not outputs:
+        problem('WARN', 'the report wrote no "outputs" block; it may be an old version')
+        return
+    if outputs.get('centroids_geopackage') is None:
+        say('INFO the report ran with --no-gpkg; skipping the geopackage checks')
+        return
+
+    alerts = data.get('alerts') or []
+    want_polygons = sum(1 for a in alerts for p in a.get('polygons') or [] if p.get('centroid'))
+    want_alerts = sum(1 for a in alerts if a.get('centroid'))
+
+    for name, table, want in (
+            (CENTROIDS_GPKG, 'polygon_centroids', want_polygons),
+            (CENTROIDS_GPKG, 'alert_centroids', want_alerts),
+            (GEOMETRY_GPKG, 'alert_polygons', counts.get('polygons', 0))):
+        path = os.path.join(os.path.dirname(os.path.abspath(REPORT)), name)
+        if not os.path.exists(path):
+            problem('ERROR', f'{name} does not exist')
+            continue
+        got = table_count(path, table)
+        if got is None:
+            problem('ERROR', f'{name} has no readable "{table}" layer')
+        elif got != want:
+            problem('ERROR', f'{name} layer {table} holds {got} rows but the JSON '
+                             f'implies {want}')
+        elif got == 0:
+            problem('WARN', f'{name} layer {table} is empty')
 
 
 def check_zone_versions(python_exe):
@@ -194,6 +255,8 @@ def main(argv=None):
     if result is None:
         print(f'{stamp()} VERDICT FAIL the report is not readable', flush=True)
         return 2
+
+    check_geopackages(result['data'])
 
     if not args.check_only:
         check_zone_versions(args.python)

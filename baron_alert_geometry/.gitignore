@@ -9,6 +9,12 @@ alerts_report.json
 alerts_report_*.json
 *.log
 
+# Generated geometry. Every GeoPackage and FlatGeobuf here is script output.
+*.gpkg
+*.gpkg-journal
+*.gpkg-wal
+*.fgb
+
 # File-safety backups.
 backup/
 

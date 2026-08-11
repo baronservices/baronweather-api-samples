@@ -87,11 +87,33 @@ different zone subset — `KWNS.SV.A.556` appeared as 6 records.
 identity and is meant to repeat, plus `record_key` (events + a hash of the zone list)
 which is unique per record — verified 138/138.
 
+### 5. `distinct_zones_resolved` counted the zones that did not resolve — `baron_alerts_report.py`
+
+**Was:** the count filtered the resolver cache with `if v`. The cache value is the tuple
+`(rows, resolved_id)`, which is truthy even when `rows` is empty, so every cached miss
+counted as a resolved zone. The reported figure was the cache size, not the hit count.
+
+Low harm — the number is reporting only, and `zone_lookups.misses` was always correct
+beside it — but two adjacent counts disagreed and the wrong one looked authoritative.
+
+**Fix:** unpack the tuple and test `rows`. Covered in `selftest.py`, which asserts the
+cache holds an entry for a miss and that the count still reports 1 of 2.
+
+### 6. Both layers of one GeoPackage cannot open their own transaction — `baron_alerts_report.py`
+
+**Was:** `write_centroid_gpkg` called `StartTransaction()` on each of its two layers. In
+GDAL the transaction belongs to the *dataset*, so the second call raised
+`RuntimeError: Transaction already established` and the file was left unwritable.
+
+Caught by `selftest.py` on its first run, before the code was used against the API.
+
+**Fix:** one `dataset.StartTransaction()` / `dataset.CommitTransaction()` pair.
+
 ---
 
 ## Open
 
-### 5. Fire zone ids are not real UGC codes — desirable, not necessary
+### 7. Fire zone ids are not real UGC codes — desirable, not necessary
 
 Client-side handling is complete (item 1), so nothing here depends on this. It is a defect
 report for Baron, not work for this project.
@@ -110,7 +132,7 @@ reintroduces 3,016 key collisions.
 **Cost of leaving it:** our workaround depends on an undocumented internal convention. If
 Baron changes it, the recode fails silently.
 
-### 6. `precision=3` returns HTTP 400 — API off-by-one
+### 8. `precision=3` returns HTTP 400 — API off-by-one
 
 **Where:** `wxworx/lib/url/argschecker.py:150` in `baronwebapi.dev`.
 
@@ -132,7 +154,7 @@ endpoint.
 deploy. Nothing here depends on precision 3 — the scripts validate 4–9 up front with a
 clear message, and precision barely affects size anyway (p4 is only ~15% smaller than p6).
 
-### 7. Should this read PostGIS directly instead of the HTTP API?
+### 9. Should this read PostGIS directly instead of the HTTP API?
 
 The alert server already holds this data in PostGIS — a `zones` table with a geometry
 column plus `shp_versions`. Querying it directly would avoid 217 MB of HTTP and 11,651
@@ -143,7 +165,7 @@ you to their schema, whereas the HTTP API is the stable contract. Reasonable spl
 for anything portable or external, database for in-infra batch work. Needs a call from
 whoever owns the deployment.
 
-### 8. Geometry is over-detailed for rendering
+### 10. Geometry is over-detailed for rendering
 
 `NCZ196` has 216 polygon parts, `NCZ110` 174, `NJC009` 115. Fine for analysis, wasteful
 for drawing.
@@ -155,13 +177,13 @@ keeping `zones.gpkg` as the analytical source.
 **Why open:** depends on whether these get drawn, and at what zoom levels, which
 determines the tolerance. Not worth guessing.
 
-### 9. ~~31 wasted API calls per alert-report run~~ — fixed by item 1
+### 11. ~~31 wasted API calls per alert-report run~~ — fixed by item 1
 
 Closed as a side effect of resolving the F-coded zone first: the Z-coded lookup that used
 to 404 against the API no longer happens. API zone calls per run 31 → 0, run time 11.5 s →
 3.9 s.
 
-### 10. `--geometry-source api` is slow
+### 12. `--geometry-source api` is slow
 
 Zone lookups over the API are serial at roughly 0.2 s each, so the full `all` product
 takes about 4 minutes versus ~12 s from the GeoPackage. Concurrent pre-resolution would

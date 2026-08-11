@@ -3,7 +3,21 @@
 Baron Velocity Weather API - alert report with per-polygon centroids.
 
 Walks every page of the alert feed, resolves the polygon(s) behind each alert,
-computes a centroid for each one, and writes a single consolidated JSON report.
+computes a centroid for each one, and writes a consolidated JSON report plus two
+GeoPackages.
+
+Outputs
+-------
+    alerts_report.json      the full report, every polygon with its centroid
+    alerts_centroids.gpkg   layer polygon_centroids - one point per polygon
+                            layer alert_centroids   - one point per alert
+    alerts_geometry.gpkg    layer alert_polygons    - the raw polygon of each
+
+All three carry `record_key`, so they join to each other. The centroid file
+answers "where is this alert"; the geometry file answers "what shape is it".
+Use --no-gpkg for the JSON alone.
+
+To pull one zone's geometry back out by id, use zone_geometry.py.
 
 Polygon resolution
 ------------------
@@ -54,9 +68,11 @@ Data quirks handled
 
 Usage
 -----
-    python3 baron_alerts_report.py                          # all product -> alerts_report.json
+    python3 baron_alerts_report.py                          # JSON + both GeoPackages
     python3 baron_alerts_report.py --product all-poly       # include storm-based polygons
-    python3 baron_alerts_report.py --include-geometry       # embed polygons (large)
+    python3 baron_alerts_report.py --no-gpkg                # JSON only
+    python3 baron_alerts_report.py --gpkg-dir out           # GeoPackages into out/
+    python3 baron_alerts_report.py --include-geometry       # embed polygons in the JSON
     python3 baron_alerts_report.py --no-text                # drop bulletin text
     python3 baron_alerts_report.py --geometry-source api    # ignore the local GeoPackage
 """
@@ -68,6 +84,7 @@ import logging
 import math
 import os
 import re
+import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -75,7 +92,7 @@ from datetime import datetime, timezone
 from baron_zones_fetch import BaronClient, FetchError, NotFound, backup_file, get_credentials
 
 try:
-    from osgeo import gdal, ogr
+    from osgeo import gdal, ogr, osr
     gdal.UseExceptions()
 except ImportError:
     sys.exit('error: GDAL Python bindings required (python3 -c "from osgeo import ogr")')
@@ -84,6 +101,15 @@ PRODUCTS = ('all', 'poly', 'all-poly')
 DEFAULT_GPKG = os.path.join('zones_out', 'zones.gpkg')
 MAX_PAGE_WALK = 500          # backstop against a runaway pages value
 LOG_FILE = 'baron_alerts_report.log'
+
+# GeoPackage outputs written alongside the JSON report. The centroid file answers
+# "where is this alert", the geometry file answers "what shape is this alert".
+# Both carry the same record_key, so they join back to the JSON and to each other.
+CENTROIDS_GPKG = 'alerts_centroids.gpkg'
+GEOMETRY_GPKG = 'alerts_geometry.gpkg'
+POLYGON_CENTROID_LAYER = 'polygon_centroids'
+ALERT_CENTROID_LAYER = 'alert_centroids'
+ALERT_POLYGON_LAYER = 'alert_polygons'
 
 # Fire-weather alerts cite their zones with a Z code (WYZ277) while the zone
 # shapefile stores fire zones with an F code (WYF277 "Lincoln and Uinta
@@ -243,6 +269,252 @@ def combine_centroids(records):
         'lon': round(math.degrees(math.atan2(y, x)), 6),
         'lat': round(lat_sum / weight_sum, 6),
     }
+
+
+# --------------------------------------------------------------------------- #
+# GeoPackage output
+# --------------------------------------------------------------------------- #
+
+# One attribute schema for both polygon-level layers, so the centroid point and
+# the polygon it came from carry identical columns and join on record_key.
+POLYGON_FIELDS = (
+    ('record_key', ogr.OFTString),
+    ('event_key', ogr.OFTString),
+    ('alert_types', ogr.OFTString),
+    ('colors', ogr.OFTString),
+    ('valid_end', ogr.OFTString),
+    ('polygon_index', ogr.OFTInteger),
+    ('source', ogr.OFTString),
+    ('zone_id', ogr.OFTString),
+    ('resolved_zone_id', ogr.OFTString),
+    ('zone_type', ogr.OFTString),
+    ('zone_name', ogr.OFTString),
+    ('zone_row', ogr.OFTInteger),
+    ('zone_rows_for_id', ogr.OFTInteger),
+    ('centroid_lon', ogr.OFTReal),
+    ('centroid_lat', ogr.OFTReal),
+    ('centroid_inside_polygon', ogr.OFTInteger),
+    ('crosses_antimeridian', ogr.OFTInteger),
+    ('parts', ogr.OFTInteger),
+    ('geometry_type', ogr.OFTString),
+)
+
+ALERT_FIELDS = (
+    ('record_key', ogr.OFTString),
+    ('event_key', ogr.OFTString),
+    ('event_keys', ogr.OFTString),
+    ('alert_types', ogr.OFTString),
+    ('colors', ogr.OFTString),
+    ('valid_end', ogr.OFTString),
+    ('zones', ogr.OFTString),
+    ('polygon_count', ogr.OFTInteger),
+    ('unresolved_zone_count', ogr.OFTInteger),
+    ('centroid_lon', ogr.OFTReal),
+    ('centroid_lat', ogr.OFTReal),
+)
+
+
+def _wgs84():
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    # GDAL 3 defaults to authority axis order (lat, lon) for EPSG:4326. Force the
+    # traditional (lon, lat) order so the written coordinates are not transposed.
+    srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    return srs
+
+
+def _create_layer(dataset, name, geom_type, fields):
+    layer = dataset.CreateLayer(name, _wgs84(), geom_type, ['GEOMETRY_NAME=geom'])
+    for field_name, field_type in fields:
+        layer.CreateField(ogr.FieldDefn(field_name, field_type))
+    return layer
+
+
+def _set_field(feature, name, value):
+    """Set one field, mapping None to NULL and bool to 0/1."""
+    if value is None:
+        feature.SetFieldNull(name)
+    elif isinstance(value, bool):
+        feature.SetField(name, int(value))
+    elif isinstance(value, (list, tuple)):
+        feature.SetField(name, ', '.join(str(v) for v in value if v is not None))
+    else:
+        feature.SetField(name, value)
+
+
+def _write_feature(layer, values, geometry):
+    feature = ogr.Feature(layer.GetLayerDefn())
+    for name, value in values.items():
+        _set_field(feature, name, value)
+    if geometry is not None:
+        feature.SetGeometry(geometry)
+    layer.CreateFeature(feature)
+    feature = None
+
+
+def _polygon_values(record, polygon, index):
+    """Attributes shared by the polygon centroid layer and the polygon layer."""
+    centroid = polygon.get('centroid') or {}
+    return {
+        'record_key': record.get('record_key'),
+        'event_key': record.get('event_key'),
+        'alert_types': record.get('types'),
+        'colors': record.get('colors'),
+        'valid_end': record.get('valid_end'),
+        'polygon_index': index,
+        'source': polygon.get('source'),
+        'zone_id': polygon.get('zone_id'),
+        'resolved_zone_id': polygon.get('resolved_zone_id'),
+        'zone_type': polygon.get('zone_type'),
+        'zone_name': polygon.get('zone_name'),
+        'zone_row': polygon.get('zone_row'),
+        'zone_rows_for_id': polygon.get('zone_rows_for_id'),
+        'centroid_lon': centroid.get('lon'),
+        'centroid_lat': centroid.get('lat'),
+        'centroid_inside_polygon': polygon.get('centroid_inside_polygon'),
+        'crosses_antimeridian': polygon.get('crosses_antimeridian'),
+        'parts': polygon.get('parts'),
+        'geometry_type': polygon.get('geometry_type'),
+    }
+
+
+def _point(lon, lat):
+    point = ogr.Geometry(ogr.wkbPoint)
+    point.AddPoint_2D(float(lon), float(lat))
+    return point
+
+
+def _index(gpkg_path, statements):
+    """Add the attribute indexes OGR does not create for us."""
+    con = sqlite3.connect(gpkg_path)
+    try:
+        for statement in statements:
+            con.execute(statement)
+        con.commit()
+    finally:
+        con.close()
+
+
+def _new_dataset(path):
+    backup_file(path)
+    if os.path.exists(path):
+        os.remove(path)
+    dataset = ogr.GetDriverByName('GPKG').CreateDataSource(path)
+    if dataset is None:
+        raise RuntimeError(f'could not create {path}')
+    return dataset
+
+
+def write_centroid_gpkg(records, path):
+    """Write the centroid points: one per polygon, plus one per alert.
+
+    Two layers rather than one, because they answer different questions. Plot
+    `alert_centroids` for one dot per alert; plot `polygon_centroids` when an
+    alert spans many zones and each zone needs its own dot.
+    """
+    dataset = _new_dataset(path)
+    polygon_layer = _create_layer(dataset, POLYGON_CENTROID_LAYER,
+                                  ogr.wkbPoint, POLYGON_FIELDS)
+    alert_layer = _create_layer(dataset, ALERT_CENTROID_LAYER,
+                                ogr.wkbPoint, ALERT_FIELDS)
+
+    # The transaction belongs to the dataset, not the layer. Starting one per layer
+    # raises "Transaction already established" as soon as the second layer asks.
+    dataset.StartTransaction()
+    polygon_rows = alert_rows = 0
+    try:
+        for record in records:
+            for index, polygon in enumerate(record.get('polygons') or []):
+                centroid = polygon.get('centroid')
+                if not centroid:
+                    continue
+                _write_feature(polygon_layer, _polygon_values(record, polygon, index),
+                               _point(centroid['lon'], centroid['lat']))
+                polygon_rows += 1
+
+            centroid = record.get('centroid')
+            if not centroid:
+                continue
+            _write_feature(alert_layer, {
+                'record_key': record.get('record_key'),
+                'event_key': record.get('event_key'),
+                'event_keys': record.get('event_keys'),
+                'alert_types': record.get('types'),
+                'colors': record.get('colors'),
+                'valid_end': record.get('valid_end'),
+                'zones': record.get('zones'),
+                'polygon_count': record.get('polygon_count'),
+                'unresolved_zone_count': len(record.get('unresolved_zones') or []),
+                'centroid_lon': centroid['lon'],
+                'centroid_lat': centroid['lat'],
+            }, _point(centroid['lon'], centroid['lat']))
+            alert_rows += 1
+    finally:
+        dataset.CommitTransaction()
+        polygon_layer = alert_layer = dataset = None
+
+    _index(path, [
+        f'CREATE INDEX IF NOT EXISTS idx_{POLYGON_CENTROID_LAYER}_record_key '
+        f'ON {POLYGON_CENTROID_LAYER}(record_key)',
+        f'CREATE INDEX IF NOT EXISTS idx_{POLYGON_CENTROID_LAYER}_zone_id '
+        f'ON {POLYGON_CENTROID_LAYER}(zone_id)',
+        f'CREATE INDEX IF NOT EXISTS idx_{ALERT_CENTROID_LAYER}_record_key '
+        f'ON {ALERT_CENTROID_LAYER}(record_key)',
+        f'CREATE INDEX IF NOT EXISTS idx_{ALERT_CENTROID_LAYER}_event_key '
+        f'ON {ALERT_CENTROID_LAYER}(event_key)',
+    ])
+    logger.info(f'GPKG_CENTROIDS {path} polygon_centroids={polygon_rows} '
+                f'alert_centroids={alert_rows} bytes={os.path.getsize(path)}')
+    return {'path': path, 'polygon_centroids': polygon_rows,
+            'alert_centroids': alert_rows, 'bytes': os.path.getsize(path)}
+
+
+def write_geometry_gpkg(records, path):
+    """Write the raw polygon of every resolved alert geometry.
+
+    The layer is created as MULTIPOLYGON and every geometry is promoted to one.
+    A mixed Polygon/MultiPolygon layer loses the odd feature out, which is the
+    same trap `-nlt MULTIPOLYGON` guards against in baron_zones_fetch.py.
+    """
+    dataset = _new_dataset(path)
+    layer = _create_layer(dataset, ALERT_POLYGON_LAYER,
+                          ogr.wkbMultiPolygon, POLYGON_FIELDS)
+
+    dataset.StartTransaction()
+    written = 0
+    skipped = 0
+    try:
+        for record in records:
+            for index, polygon in enumerate(record.get('polygons') or []):
+                raw = polygon.get('_geometry')
+                if raw is None:
+                    skipped += 1
+                    continue
+                geometry = ogr.CreateGeometryFromJson(json.dumps(raw))
+                if geometry is None:
+                    skipped += 1
+                    logger.error(f'GPKG_GEOM_UNREADABLE {record.get("record_key")} '
+                                 f'polygon={index}')
+                    continue
+                _write_feature(layer, _polygon_values(record, polygon, index),
+                               ogr.ForceToMultiPolygon(geometry))
+                written += 1
+    finally:
+        dataset.CommitTransaction()
+        layer = dataset = None
+
+    _index(path, [
+        f'CREATE INDEX IF NOT EXISTS idx_{ALERT_POLYGON_LAYER}_record_key '
+        f'ON {ALERT_POLYGON_LAYER}(record_key)',
+        f'CREATE INDEX IF NOT EXISTS idx_{ALERT_POLYGON_LAYER}_zone_id '
+        f'ON {ALERT_POLYGON_LAYER}(zone_id)',
+    ])
+    if skipped:
+        logger.warning(f'GPKG_GEOM_SKIPPED {skipped} polygons had no usable geometry')
+    logger.info(f'GPKG_GEOMETRY {path} features={written} skipped={skipped} '
+                f'bytes={os.path.getsize(path)}')
+    return {'path': path, 'features': written, 'skipped': skipped,
+            'bytes': os.path.getsize(path)}
 
 
 # --------------------------------------------------------------------------- #
@@ -438,8 +710,14 @@ def walk_alerts(client, product, from_date=None):
 # Report construction
 # --------------------------------------------------------------------------- #
 
-def build_alert_record(alert, resolver, include_geometry, include_text, fire_recode=True):
-    """Turn one raw alert into a report record with per-polygon centroids."""
+def build_alert_record(alert, resolver, include_geometry, include_text, fire_recode=True,
+                       keep_geometry=False):
+    """Turn one raw alert into a report record with per-polygon centroids.
+
+    `include_geometry` publishes the polygon in the JSON. `keep_geometry` holds it
+    on the record under the private key `_geometry` so the GeoPackage writer can
+    use it; main() strips that key before the JSON is written.
+    """
     record = {k: v for k, v in alert.items() if k not in ('geometry', 'text')}
     if include_text and 'text' in alert:
         record['text'] = alert['text']
@@ -472,6 +750,8 @@ def build_alert_record(alert, resolver, include_geometry, include_text, fire_rec
             entry['renested_from_nonstandard_geojson'] = renested
             if include_geometry:
                 entry['geometry'] = geom
+            if keep_geometry:
+                entry['_geometry'] = geom
             polygons.append(entry)
         else:
             unresolved.append({'zone_id': None, 'reason': 'inline geometry unreadable'})
@@ -503,6 +783,8 @@ def build_alert_record(alert, resolver, include_geometry, include_text, fire_rec
             entry.update(measured)
             if include_geometry:
                 entry['geometry'] = row['geometry']
+            if keep_geometry:
+                entry['_geometry'] = row['geometry']
             polygons.append(entry)
 
     record['centroid'] = combine_centroids(polygons) if polygons else None
@@ -555,6 +837,10 @@ def parse_args(argv=None):
     p.add_argument('--no-fire-zone-recode', action='store_true',
                    help='disable matching Z-coded fire-weather zones to their F-coded '
                         'FIRE twins; those zones then report as unresolved')
+    p.add_argument('--no-gpkg', action='store_true',
+                   help=f'skip the GeoPackage outputs ({CENTROIDS_GPKG} and {GEOMETRY_GPKG})')
+    p.add_argument('--gpkg-dir', default=None,
+                   help='directory for the GeoPackage outputs (default: beside --out)')
     p.add_argument('--indent', type=int, default=2, help='JSON indent, 0 for compact (default: 2)')
     p.add_argument('--verbose', action='store_true', help='debug-level logging to the log file')
     return p.parse_args(argv)
@@ -588,13 +874,15 @@ def main(argv=None):
     except (FetchError, NotFound) as exc:
         logger.warning(f'VERSIONS_UNAVAILABLE {exc}')
 
+    write_gpkg = not args.no_gpkg
     print(f'resolving polygons for {len(alerts)} alerts...')
     records = []
     total_unresolved = 0
     for i, alert in enumerate(alerts, 1):
         record, unresolved = build_alert_record(
             alert, resolver, args.include_geometry, not args.no_text,
-            fire_recode=not args.no_fire_zone_recode)
+            fire_recode=not args.no_fire_zone_recode,
+            keep_geometry=write_gpkg)
         records.append(record)
         total_unresolved += unresolved
         if i % 25 == 0:
@@ -609,6 +897,24 @@ def main(argv=None):
     renested = sum(1 for r in records for p in r['polygons']
                    if p.get('renested_from_nonstandard_geojson'))
     recoded = sum(1 for r in records for p in r['polygons'] if p.get('resolved_zone_id'))
+
+    # The GeoPackages are written before the JSON, because the writer reads the
+    # private `_geometry` key that is stripped from the records below.
+    gpkg_out = {}
+    if write_gpkg:
+        gpkg_dir = args.gpkg_dir or os.path.dirname(os.path.abspath(args.out))
+        os.makedirs(gpkg_dir, exist_ok=True)
+        print('writing geopackages...')
+        gpkg_out['centroids'] = write_centroid_gpkg(
+            records, os.path.join(gpkg_dir, CENTROIDS_GPKG))
+        gpkg_out['geometry'] = write_geometry_gpkg(
+            records, os.path.join(gpkg_dir, GEOMETRY_GPKG))
+
+    # `_geometry` is an internal handle for the GeoPackage writer, not report data.
+    for record in records:
+        for entry in record['polygons']:
+            entry.pop('_geometry', None)
+
     elapsed = time.time() - started
 
     report = {
@@ -635,12 +941,26 @@ def main(argv=None):
                 'per_alert': ('area-weighted mean of polygon centroids; longitudes averaged '
                               'as unit vectors, weights scaled by cos(latitude)'),
             },
+            'outputs': {
+                'json': args.out,
+                'centroids_geopackage': gpkg_out.get('centroids'),
+                'geometry_geopackage': gpkg_out.get('geometry'),
+                'layers': {
+                    CENTROIDS_GPKG: [POLYGON_CENTROID_LAYER, ALERT_CENTROID_LAYER],
+                    GEOMETRY_GPKG: [ALERT_POLYGON_LAYER],
+                } if gpkg_out else {},
+                'join_key': 'record_key',
+            },
             'counts': {
                 'alerts': len(records),
                 'polygons': total_polygons,
                 'alerts_without_centroid': without_centroid,
                 'unresolved_zone_references': total_unresolved,
-                'distinct_zones_resolved': len([z for z, v in resolver.cache.items() if v]),
+                # The cache value is the tuple (rows, resolved_id), which is truthy
+                # even when the lookup found nothing. Test rows, or every miss
+                # counts as a resolved zone.
+                'distinct_zones_resolved': len([z for z, (rows, _) in resolver.cache.items()
+                                                if rows]),
                 'polygons_crossing_antimeridian': wrapped,
                 'centroids_outside_their_polygon': outside,
                 'polygons_renested_from_nonstandard_geojson': renested,
@@ -684,6 +1004,15 @@ def main(argv=None):
     print(f'elapsed                     {elapsed:.1f}s')
     print('-' * 60)
     print(f'report: {args.out} ({os.path.getsize(args.out)/1048576:.1f} MB)')
+    if gpkg_out:
+        centroids = gpkg_out['centroids']
+        geometry = gpkg_out['geometry']
+        print(f'centroids: {centroids["path"]} '
+              f'({centroids["polygon_centroids"]} polygon + '
+              f'{centroids["alert_centroids"]} alert points, '
+              f'{centroids["bytes"]/1048576:.1f} MB)')
+        print(f'geometry: {geometry["path"]} '
+              f'({geometry["features"]} polygons, {geometry["bytes"]/1048576:.1f} MB)')
 
     return 0
 
