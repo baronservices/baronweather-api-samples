@@ -44,6 +44,7 @@ const LABEL_LAYER = 'geolines-label'
 let map
 let selected = PRODUCTS[0]
 let protocol = 'tms'   // 'tms' or 'wms'
+let ready = false   // credentials loaded and the first signature computed
 
 /** Shorthand for document.getElementById. */
 const el = (id) => document.getElementById(id)
@@ -102,14 +103,18 @@ function createMap() {
  *     "Undefined"        → gradient bar, no labels
  *   - no legend at all   → a plain note (the CDN answers 403 for some products)
  */
+function resetLegend() {
+  el('legend-bar').style.display = 'none'
+  el('legend-labels').replaceChildren()
+  el('legend-note').textContent = ''
+}
+
 async function showLegend() {
   const bar = el('legend-bar')
   const labels = el('legend-labels')
   const note = el('legend-note')
 
-  bar.style.display = 'none'
-  labels.replaceChildren()
-  note.textContent = ''
+  resetLegend()
 
   let entries
   try {
@@ -176,6 +181,10 @@ async function showLegend() {
  * anyway — one path is simpler than two.
  */
 async function showProduct() {
+  // Leave the setup message from start() in place rather than overwriting it
+  // with a null-dereference from deeper in the stack.
+  if (!ready) return
+
   if (map.getLayer('wx')) map.removeLayer('wx')
   if (map.getSource('wx')) map.removeSource('wx')
 
@@ -185,6 +194,7 @@ async function showProduct() {
   try {
     time = await latestInstance(selected.code, selected.config)
   } catch (error) {
+    resetLegend()
     setStatus(error.message, true)
     return
   }
@@ -196,7 +206,7 @@ async function showProduct() {
         ? tmsTemplate(selected.code, selected.config, time)
         : wmsTemplate(selected.code, selected.config, time)
     ],
-    tileSize: 256,
+    tileSize: 256,   // must match width/height in baron.js's wmsTemplate
     attribution: '&copy; Baron Weather'
   }
   // Baron TMS rows run bottom-up. WMS is addressed by bounding box, so it uses
@@ -210,6 +220,15 @@ async function showProduct() {
   showLegend()
 }
 
+/**
+ * showProduct() is async, so a throw after the instance lookup — a source id
+ * collision from fast clicking, a missing basemap anchor layer, a style that is
+ * not loaded yet — would otherwise surface only as a console rejection while the
+ * panel sat on "Loading …". Every entry point goes through here so the reason
+ * always reaches the panel.
+ */
+const redraw = () => showProduct().catch((error) => setStatus(error.message, true))
+
 /** Build the product radios from PRODUCTS, so the list lives in one place. */
 function buildProducts() {
   const container = el('products')
@@ -221,7 +240,7 @@ function buildProducts() {
     radio.checked = index === 0
     radio.addEventListener('change', () => {
       selected = product
-      showProduct()
+      redraw()
     })
     label.append(radio, ` ${product.label}`)
     container.append(label)
@@ -237,7 +256,7 @@ function buildProtocolToggle() {
       for (const other of buttons) {
         other.classList.toggle('on', other === button)
       }
-      showProduct()
+      redraw()
     })
   }
 }
@@ -245,12 +264,13 @@ function buildProtocolToggle() {
 async function start() {
   buildProducts()
   buildProtocolToggle()
-  el('refresh').addEventListener('click', showProduct)
+  el('refresh').addEventListener('click', redraw)
   createMap()
 
   try {
     await loadCredentials()
     await startSigning()
+    ready = true
   } catch (error) {
     // Without credentials the basemap still loads, so the page is never blank.
     setStatus(error.message, true)
@@ -260,8 +280,8 @@ async function start() {
   // Wait for the style before adding a layer — addLayer needs its anchor layer
   // to exist. Loading credentials is fast enough that the style is usually still
   // loading, but check rather than rely on the race going one way.
-  if (map.isStyleLoaded()) showProduct()
-  else map.on('load', showProduct)
+  if (map.isStyleLoaded()) redraw()
+  else map.on('load', redraw)
 }
 
 start()

@@ -69,6 +69,9 @@ query   = "ts=<ts>&sig=<sig>"
 **A signature is valid for about ±15 minutes.** At 20 minutes old the API returns
 `403 {"status":403,"message":"Expired timestamp","code":800311}`.
 
+Because signing is timestamp-based, a system clock more than about 15 minutes out fails every
+request the same way — `403 Expired timestamp` — even though the key and secret are correct.
+
 That is why this app never puts a signature in a tile URL. It caches one, renews it every 5
 minutes, and appends it per request through MapLibre's `transformRequest` hook. A signature
 baked into a source URL works at first and then the map quietly goes blank while panning.
@@ -102,6 +105,9 @@ bottom-up, so a MapLibre raster source needs `scheme: 'tms'`.
   &layers={instance time}
 ```
 
+MapLibre fills the bbox in per tile — pass `bbox={bbox-epsg-3857}` in the raster source template
+and it substitutes each tile's bounds.
+
 Three traps:
 
 - **`LAYERS` is the instance timestamp, not the product code.** `GetCapabilities` lists each
@@ -116,7 +122,7 @@ Three traps:
 
 ```
 https://static.velocityweather.com/legends/{product}/{config}/legend.json
-→ {"palettes": [{"entries": [{"color": "#01f3f7ff", "value": "0.5 dBZ"}]}]}
+→ {"palettes": [{"entries": [{"color": "#01f3f7ff", "value": "5 dBZ"}]}]}
 ```
 
 Public — no signature. Colours are `#rrggbbaa`, which CSS accepts directly. This is a
@@ -165,3 +171,6 @@ more detail if that matters.
 
 One weather layer at a time. No animation, no instance history, no point queries, and no
 automatic polling for new instances — the Refresh button covers that.
+
+`setInterval` does not fire while the machine sleeps, so after a long sleep the cached signature
+can be stale and tiles may fail until you click Refresh.

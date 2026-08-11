@@ -26,7 +26,11 @@ export function parseEnv(text) {
     if (!trimmed || trimmed.startsWith('#')) continue
     const eq = trimmed.indexOf('=')
     if (eq === -1) continue
-    values[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim()
+    // Strip surrounding quotes, matching geotiff_fetch/baron_geotiff.py. One .env
+    // is meant to serve every folder in this repository, so a value written
+    // KEY="abc" has to parse the same way here as it does there — otherwise it
+    // silently signs with the quotes included and every request 403s.
+    values[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
   }
   return values
 }
@@ -139,6 +143,15 @@ export async function latestInstance(product, config) {
     `/meta/tiles/product-instances/${product}/${config}.json?page_size=1`
   )
   const response = await fetch(url)
+  if (response.status === 401 || response.status === 403) {
+    // The three usual causes, none of which are "this product has no data":
+    // a key not entitled to the product, a malformed secret, or a system clock
+    // more than ~15 minutes out — signing is timestamp-based, so clock skew
+    // fails every request while everything else looks correct.
+    throw new Error(
+      `Not authorised for ${product} — check the key, the secret, and the system clock (HTTP ${response.status})`
+    )
+  }
   if (!response.ok) {
     throw new Error(`No instances for ${product} (HTTP ${response.status})`)
   }
@@ -188,7 +201,7 @@ export function wmsTemplate(product, config, time) {
     'request=GetMap',
     'crs=EPSG:3857',
     'bbox={bbox-epsg-3857}',
-    'width=256',
+    'width=256',    // must match tileSize in app.js's createMap source
     'height=256',
     'format=image/png',
     'transparent=true',
