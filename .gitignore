@@ -22,3 +22,5 @@ geotiff_fetch/logs/
 geotiff_fetch/*.tif
 geotiff_fetch/*_legend.json
 geotiff_fetch/*.qml
+# GDAL PAM sidecars, written whenever something computes raster statistics
+geotiff_fetch/*.aux.xml
