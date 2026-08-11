@@ -1,0 +1,9 @@
+# Credentials. Never commit these.
+.env
+
+# File-safety backups.
+backup/
+
+# Python
+__pycache__/
+*.pyc
