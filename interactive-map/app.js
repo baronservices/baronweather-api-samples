@@ -62,16 +62,14 @@ function setStatus(text, isError = false) {
 /**
  * Forward Web Mercator, degrees to EPSG:3857 metres.
  *
- * Inputs are clamped: longitudes can run past ±180 when the map wraps, and the
- * latitude formula diverges at the poles, so 85.05112878 is Web Mercator's
- * usable limit.
+ * Does not clamp. The latitude formula diverges at the poles, so callers must
+ * clamp longitude to ±180 and latitude to ±85.05112878 — Web Mercator's usable
+ * limit — before calling this.
  */
 function toMercator(lng, lat) {
-  const l = Math.max(-180, Math.min(180, lng))
-  const t = Math.max(-85.05112878, Math.min(85.05112878, lat))
   return [
-    (l * 20037508.34) / 180,
-    (Math.log(Math.tan(((90 + t) * Math.PI) / 360)) / (Math.PI / 180)) * (20037508.34 / 180)
+    (lng * 20037508.34) / 180,
+    (Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180)) * (20037508.34 / 180)
   ]
 }
 
@@ -82,13 +80,31 @@ function toMercator(lng, lat) {
  * rotated, and height is derived from that box's aspect rather than the canvas
  * aspect — so the image is never distorted, whatever the camera is doing.
  *
+ * At low zoom the viewport can be wider than the world, in which case the
+ * clamp below makes the bbox and the coordinates both stop at the Mercator
+ * edge: the overlay covers the world exactly once, correctly registered, with
+ * blank margins where the map repeats itself. That is the honest picture for a
+ * single-image WMS request, not a bug.
+ *
  * Returns null for a momentarily unsized container (width or height of 0)
  * rather than requesting a bad URL.
  */
 function wmsViewport() {
   const bounds = map.getBounds()
-  const [minx, miny] = toMercator(bounds.getWest(), bounds.getSouth())
-  const [maxx, maxy] = toMercator(bounds.getEast(), bounds.getNorth())
+
+  // Clamp once, then feed the same four numbers to both the bbox and the image's
+  // corners. If these two disagree the image covers one rectangle and is placed
+  // on another, and MapLibre stretches the pixels across the difference — the
+  // whole overlay shifts, not just the part past the edge. getBounds() runs past
+  // ±180 whenever the viewport is wider than the world or the camera sits near
+  // the antimeridian, and past ±85.05 under pitch.
+  const west = Math.max(-180, bounds.getWest())
+  const east = Math.min(180, bounds.getEast())
+  const south = Math.max(-85.05112878, bounds.getSouth())
+  const north = Math.min(85.05112878, bounds.getNorth())
+
+  const [minx, miny] = toMercator(west, south)
+  const [maxx, maxy] = toMercator(east, north)
 
   let width = Math.min(map.getCanvas().clientWidth, WMS_MAX_PIXELS)
   let height = Math.round((width * (maxy - miny)) / (maxx - minx))
@@ -102,10 +118,10 @@ function wmsViewport() {
     url: wmsImageUrl(selected.code, selected.config, currentTime,
                      [minx, miny, maxx, maxy], width, height),
     coordinates: [
-      [bounds.getWest(), bounds.getNorth()],
-      [bounds.getEast(), bounds.getNorth()],
-      [bounds.getEast(), bounds.getSouth()],
-      [bounds.getWest(), bounds.getSouth()]
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south]
     ]
   }
 }
@@ -252,6 +268,10 @@ async function showProduct() {
   if (!ready) return
 
   if (map.getLayer('wx')) map.removeLayer('wx')
+  // Removing the source before the await below is load-bearing: it is what
+  // keeps moveend's `!source` guard true for the whole latestInstance() lookup,
+  // so a move that fires mid-lookup is a no-op instead of acting on a
+  // half-built state. Do not reorder this after the await.
   if (map.getSource('wx')) map.removeSource('wx')
 
   setStatus(`Loading ${selected.label}…`)
@@ -286,10 +306,20 @@ async function showProduct() {
       setStatus('Map has no size yet — try Refresh', true)
       return
     }
+    // No attribution here: MapLibre's image source only accepts `url` and
+    // `coordinates` — addSource would reject an `attribution` key — so WMS mode
+    // shows none while TMS mode does.
     map.addSource('wx', { type: 'image', url: view.url, coordinates: view.coordinates })
   }
 
-  map.addLayer({ id: 'wx', type: 'raster', source: 'wx' }, LABEL_LAYER)
+  // Disable the default cross-fade: MapLibre's updateImage docs recommend this
+  // so the WMS image does not flash on every pan. Harmless for TMS tiles too.
+  map.addLayer({
+    id: 'wx',
+    type: 'raster',
+    source: 'wx',
+    paint: { 'raster-fade-duration': 0 }
+  }, LABEL_LAYER)
 
   setStatus(`Valid ${time}`)
   showLegend()
