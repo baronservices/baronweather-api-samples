@@ -140,3 +140,19 @@ export async function latestInstance(product, config) {
   }
   return instances[0].time
 }
+
+/**
+ * TMS tile template.
+ *
+ * The instance time sits in the path and is required — leaving it out returns
+ * 404. The time is used verbatim, not percent-encoded, which is the form the
+ * endpoint was verified against.
+ *
+ * Rows run bottom-up, so the MapLibre source needs scheme: 'tms'.
+ *
+ * Returned unsigned. transformRequest adds ts and sig to each tile request.
+ */
+export function tmsTemplate(product, config, time) {
+  const layer = `${product}+${config}+${time}`
+  return `${API_BASE}/${credentials.key}/tms/1.0.0/${layer}/{z}/{x}/{y}.png`
+}
