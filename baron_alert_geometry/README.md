@@ -46,6 +46,25 @@ python3 -c "from osgeo import gdal; print(gdal.__version__)" && ogr2ogr --versio
 Auth is handled for you: HMAC-SHA1 over `{key}:{unix_ts}`, base64 url-safe, sent as
 `ts` and `sig`. Signatures are computed once per second and shared across threads.
 
+### Where the `.env` is looked for
+
+Every script takes `--env`. Left at its default, the search order is:
+
+1. `.env` in the current working directory
+2. `.env` beside the script
+
+So the scripts work from any directory, and a per-project `.env` in the working
+directory still wins over the one in the script folder. This matters for cron, which
+does not run in the script's folder:
+
+```bash
+python3 /path/to/baron_alert_geometry/zone_geometry.py ALC089   # finds its own .env
+```
+
+An explicit `--env /path/to/.env` is used exactly as given and never falls back — a
+named path must not silently resolve to different credentials. If nothing is found, the
+error names both places it looked.
+
 ---
 
 ## 1. `baron_zones_fetch.py` — zone geometry
@@ -426,7 +445,7 @@ python3 selftest.py
 ```
 
 ```
-all 59 checks passed
+all 68 checks passed
 ```
 
 No network and no credentials. It builds a synthetic `zones.gpkg` and a synthetic set of
@@ -441,6 +460,7 @@ What it covers:
 | geopackage | layer names, counts, geometry types, lon/lat axis order, attribute round-trip, indexes, and area-in equals area-out |
 | record build | `keep_geometry` holds the polygon for the writer and `main()` strips it before the JSON |
 | lookup | by id, multi-row ids, the FORECAST/FIRE number collision in both directions, every output format, exit codes |
+| credentials | the `.env` beside the script is found from any directory, a local `.env` still wins, an explicit `--env` never falls back |
 | monitor | `check_alerts.py` catches a GeoPackage that disagrees with the JSON |
 
 The collision test is the one worth keeping. It asserts `ALZ001` resolves to FORECAST
@@ -517,8 +537,9 @@ timestamp before being overwritten.
 
 ## Troubleshooting
 
-**`BARON_API_KEY / BARON_API_SECRET not found`** — no `.env` in the working directory;
-pass `--env /path/to/.env`.
+**`BARON_API_KEY / BARON_API_SECRET not found`** — no `.env` in the working directory
+and none beside the script. The error lists both paths it tried. Pass
+`--env /path/to/.env`, or set the three variables in the environment.
 
 **`ogr2ogr not found on PATH`** — NDJSON is still staged. Install GDAL and rerun with
 `--resume` to convert without refetching.

@@ -449,6 +449,57 @@ def test_lookup(workdir):
           f'{resolved} of {len(resolver.cache)} cached')
 
 
+def test_env_resolution(workdir):
+    """The .env beside the script must be found from any working directory."""
+    print('\ncredentials: .env resolution')
+    import baron_zones_fetch as fetch
+
+    beside = os.path.join(HERE, '.env')
+    case = os.path.join(workdir, 'elsewhere')
+    os.makedirs(case, exist_ok=True)
+    start = os.getcwd()
+    os.chdir(case)
+    try:
+        resolved, tried = fetch.resolve_env_path('.env')
+        if os.path.exists(beside):
+            check('a bare .env resolves to the one beside the script',
+                  os.path.abspath(resolved) == os.path.abspath(beside), resolved)
+        else:
+            check('a bare .env reports both places it looked', len(tried) == 2,
+                  f'{len(tried)} paths')
+
+        # A local .env must still win, so a per-project file is never shadowed.
+        local = os.path.join(case, '.env')
+        with open(local, 'w') as handle:
+            handle.write('BARON_API_KEY=local\nBARON_API_SECRET=localsecret\n')
+        resolved, _ = fetch.resolve_env_path('.env')
+        # realpath, not abspath: mkdtemp hands back /var/... which is a symlink to
+        # /private/var/..., so abspath alone compares two spellings of one file.
+        check('a .env in the working directory still wins',
+              os.path.realpath(resolved) == os.path.realpath(local), resolved)
+        key, secret, base = fetch.get_credentials('.env')
+        check('the local .env is the one actually read',
+              key == 'local' and secret == 'localsecret', key)
+        check('the base url falls back to the default',
+              base == 'https://api.velocityweather.com', base)
+        os.remove(local)
+
+        # An explicit path is used as given. Guessing elsewhere would silently read
+        # the wrong credentials.
+        named = os.path.join(case, 'named.env')
+        resolved, tried = fetch.resolve_env_path(named)
+        check('an explicit path is never second-guessed',
+              resolved == named and len(tried) == 1, str(len(tried)))
+        resolved, tried = fetch.resolve_env_path('sub/dir.env')
+        check('a path with a directory is never second-guessed', len(tried) == 1)
+
+        resolved, tried = fetch.resolve_env_path('absent.env')
+        check('a missing bare name reports both candidates', len(tried) == 2
+              and os.path.dirname(tried[1]) == HERE, str(tried[1]))
+    finally:
+        os.chdir(start)
+
+
 def clean_records(count=6):
     """`count` fully-resolved alert records, enough to clear the low-alert warning."""
     records = []
@@ -547,6 +598,7 @@ def main():
         test_centroid_gpkg(workdir)
         test_geometry_gpkg(workdir)
         test_lookup(workdir)
+        test_env_resolution(workdir)
         test_check_alerts(workdir)
     finally:
         if args.keep:

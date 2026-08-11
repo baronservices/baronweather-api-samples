@@ -101,15 +101,39 @@ def load_env(path='.env'):
     return env
 
 
+def resolve_env_path(env_path):
+    """Find the .env file to read. Returns (path, list of paths tried).
+
+    A bare default like `.env` resolves against the current working directory, so
+    running a script from anywhere but its own folder finds nothing even when the
+    .env sits right beside it. The working directory is still searched first, so a
+    per-project .env keeps winning; the script's own folder is the fallback.
+
+    An explicit --env path is used exactly as given and never falls back.
+    """
+    tried = [os.path.abspath(env_path)]
+    if os.path.exists(env_path):
+        return env_path, tried
+    if os.path.isabs(env_path) or os.path.dirname(env_path):
+        return env_path, tried            # the caller named a place; do not guess
+    beside_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), env_path)
+    tried.append(beside_script)
+    if os.path.exists(beside_script):
+        return beside_script, tried
+    return env_path, tried
+
+
 def get_credentials(env_path):
     """Resolve API credentials from the environment, falling back to .env."""
-    env = load_env(env_path)
+    resolved, tried = resolve_env_path(env_path)
+    env = load_env(resolved)
     key = os.environ.get('BARON_API_KEY') or env.get('BARON_API_KEY')
     secret = os.environ.get('BARON_API_SECRET') or env.get('BARON_API_SECRET')
     base = (os.environ.get('BARON_API_BASE_URL') or env.get('BARON_API_BASE_URL')
             or 'https://api.velocityweather.com')
     if not key or not secret:
-        sys.exit(f'error: BARON_API_KEY / BARON_API_SECRET not found in {env_path} or environment')
+        sys.exit('error: BARON_API_KEY / BARON_API_SECRET not found in the environment '
+                 'or in:\n  ' + '\n  '.join(tried))
     return key, secret, base.rstrip('/')
 
 
