@@ -186,6 +186,8 @@ automatic polling for new instances — the Refresh button covers that.
 `setInterval` does not fire while the machine sleeps, so after a long sleep the cached signature
 can be stale and tiles may fail until you click Refresh.
 
-In WMS mode, one image covers one view. During a pan or zoom the old image stretches to fill the
-new viewport, then snaps to the freshly fetched image once it arrives at `moveend`. Tiled TMS does
-not do this — each tile is independent, so only the tiles entering the view need to load.
+In WMS mode, one image covers one view. MapLibre only applies a new image's coordinates once the
+replacement has loaded, so the previous image stays pinned to its own geographic corners until
+then: on zoom it just scales and blurs while staying correctly registered, and on pan the newly
+revealed edge is blank until the new image arrives at `moveend`. Tiled TMS does not do this — each
+tile is independent, so only the tiles entering the view need to load.
