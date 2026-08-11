@@ -185,15 +185,18 @@ export function signQuery()
 export async function refreshSignature()
 
 // Newest instance time for a product, e.g. "2026-08-11T16:20:38Z". Throws if none exist.
-export async function latestInstance(key, product, config)
+export async function latestInstance(product, config)
 
 // Unsigned URL templates.
-export function tmsTemplate(key, product, config, time)
-export function wmsTemplate(key, product, config, time)
+export function tmsTemplate(product, config, time)
+export function wmsTemplate(product, config, time)
 
 // Public legend URL. Needs no signature.
 export function legendUrl(product, config)
 ```
+
+The key and the secret are held in module scope inside `baron.js`, so no caller has to pass
+them around.
 
 `.env` parsing matches the Python tools: read each line, skip blank lines and lines starting
 with `#`, split on the first `=`, trim both sides. Accept `BARON_API_KEY` / `BARON_API_SECRET`
@@ -295,11 +298,17 @@ not pad the row.
 | `.env` returns 404 | Panel shows `Create interactive-map/.env from env.example`. Basemap still loads |
 | `fetch` of `.env` throws | Panel names the fix: `python3 -m http.server 8000`. This is what a `file://` open looks like |
 | `.env` has no usable key pair | Same message as a missing `.env` |
+| `crypto.subtle` is missing | Panel says signing needs a secure context and names `http://localhost:8000`. See below |
 | Instance lookup fails or is empty | Message in the panel. Layer stays off. Other products stay selectable |
 | MapLibre reports repeated tile errors | The `error` handler calls `refreshSignature()`, then logs. A 403 storm means an expired signature |
 | Legend 403 or 404 | The `No legend published` line. Not an error, not a console warning |
 
 Every message is plain text in the panel. The map never silently shows nothing.
+
+**Secure context.** `crypto.subtle` exists only in a secure context. Browsers treat
+`http://localhost` and `http://127.0.0.1` as secure, so the normal setup works. Serving the
+same page on a LAN address such as `http://192.168.1.20:8000` leaves `crypto.subtle` undefined
+and signing fails with an obscure type error. The app checks for it once and reports the cause.
 
 ## 9. README contents
 
