@@ -122,7 +122,7 @@ https://static.velocityweather.com/legends/{product}/{config}/legend.json
 Public. **No signature.** Shape:
 
 ```json
-{"palettes": [{"entries": [{"color": "#01f3f7ff", "value": "0.5 dBZ"}]}]}
+{"palettes": [{"entries": [{"color": "#a4ffa47f", "value": "5 dBZ"}]}]}
 ```
 
 Colours are `#rrggbbaa`, which CSS accepts directly. Use `palettes[0]`.
@@ -175,8 +175,13 @@ No line budget applies. Thorough comments are a requirement, and they make each 
 noticeably longer than a bare implementation would be. What matters is that each file keeps one
 responsibility.
 
-The split that matters: `baron.js` never references MapLibre, and `app.js` never computes a
-signature. Each file can be read on its own.
+The split that matters: `baron.js` calls no MapLibre API, and `app.js` computes no signature.
+Each file can be read on its own.
+
+Stated precisely, because "never references MapLibre" would overclaim: `baron.js` does embed two
+MapLibre URL tokens, `{z}/{x}/{y}` in the TMS template and `{bbox-epsg-3857}` in the WMS one, so
+the templates are not renderer-portable. What it never does is call a MapLibre function or touch
+a map object.
 
 The root `.gitignore` already ignores `.env` at any depth. No change needed.
 
@@ -185,11 +190,16 @@ The root `.gitignore` already ignores `.env` at any depth. No change needed.
 ```js
 export const API_BASE = 'https://api.velocityweather.com/v1'
 
+// Parse .env text into an object. Skips blanks and comments, splits on the first
+// "=", trims, and strips one layer of surrounding quotes.
+export function parseEnv(text)
+
 // Read .env over HTTP. Returns {key, secret}. Throws a message fit to show a user.
 export async function loadCredentials()
 
-// Compute the first signature, then refresh it every 5 minutes.
-export async function startSigning(credentials)
+// Compute the first signature, then refresh it every 5 minutes. Takes no argument —
+// loadCredentials already stashed the pair in module scope.
+export async function startSigning()
 
 // Return "ts=...&sig=..." from the cache. Synchronous by necessity — see section 5.
 export function signQuery()

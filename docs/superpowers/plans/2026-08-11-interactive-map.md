@@ -1181,7 +1181,7 @@ Three traps:
 
 ```
 https://static.velocityweather.com/legends/{product}/{config}/legend.json
-→ {"palettes": [{"entries": [{"color": "#01f3f7ff", "value": "0.5 dBZ"}]}]}
+→ {"palettes": [{"entries": [{"color": "#a4ffa47f", "value": "5 dBZ"}]}]}
 ```
 
 Public — no signature. Colours are `#rrggbbaa`, which CSS accepts directly. This is a
