@@ -13,7 +13,8 @@ import {
   refreshSignature,
   latestInstance,
   tmsTemplate,
-  wmsTemplate
+  wmsTemplate,
+  legendUrl
 } from './baron.js'
 
 // The three products this demo offers. All are observational raster products on
@@ -92,6 +93,61 @@ function createMap() {
 }
 
 /**
+ * Draw the legend for the selected product.
+ *
+ * Legend quality varies by product, so this degrades in three steps:
+ *   - real labels        → gradient bar with first, middle, and last label
+ *   - every value is
+ *     the string
+ *     "Undefined"        → gradient bar, no labels
+ *   - no legend at all   → a plain note (the CDN answers 403 for some products)
+ */
+async function showLegend() {
+  const bar = el('legend-bar')
+  const labels = el('legend-labels')
+  const note = el('legend-note')
+
+  bar.style.display = 'none'
+  labels.replaceChildren()
+  note.textContent = ''
+
+  let entries
+  try {
+    const response = await fetch(legendUrl(selected.code, selected.config))
+    if (!response.ok) throw new Error('no legend')
+    entries = (await response.json()).palettes[0].entries
+  } catch {
+    note.textContent = 'No legend published for this product.'
+    return
+  }
+
+  // Colours are #rrggbbaa, which CSS takes as-is. One evenly spaced stop per
+  // entry. A single-entry palette would divide by zero, so treat it as a fill.
+  bar.style.background = entries.length === 1
+    ? entries[0].color
+    : `linear-gradient(to right, ${entries
+        .map((e, i) => `${e.color} ${((i / (entries.length - 1)) * 100).toFixed(2)}%`)
+        .join(', ')})`
+  bar.style.display = 'block'
+
+  // Some palettes label every entry "Undefined" — a ramp with no meaning. Show
+  // labels only where real ones exist, and do not pad a short row.
+  const real = entries.filter((e) => e.value !== 'Undefined')
+  if (!real.length) return
+  const picks = real.length < 3
+    ? real
+    : [real[0], real[Math.floor(real.length / 2)], real[real.length - 1]]
+
+  labels.replaceChildren(
+    ...picks.map((entry) => {
+      const span = document.createElement('span')
+      span.textContent = entry.value
+      return span
+    })
+  )
+}
+
+/**
  * The one code path that puts weather on the map. The product radios, the
  * protocol toggle, and the Refresh button all call this.
  *
@@ -131,6 +187,7 @@ async function showProduct() {
   map.addLayer({ id: 'wx', type: 'raster', source: 'wx' }, LABEL_LAYER)
 
   setStatus(`Valid ${time}`)
+  showLegend()
 }
 
 /** Build the product radios from PRODUCTS, so the list lives in one place. */
