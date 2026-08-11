@@ -133,7 +133,7 @@ Legend availability differs per product, and the app must handle all three cases
 
 | Product | Legend |
 |---|---|
-| `C39-0x0302-0` | About 19 entries, all labelled, `5 dBZ` to `70 dBZ` |
+| `C39-0x0302-0` | 15 entries, all labelled, `5 dBZ` to `75 dBZ` in 5 dBZ steps |
 | `goes-east-fulldisk-hires-ir` | 254 entries, every `value` is the string `Undefined` |
 | `lightning-heatmap-global` | None. The CDN returns `403 AccessDenied` |
 

@@ -1016,7 +1016,7 @@ Replace the last line of `showProduct`:
 Reload the page and select each product in turn.
 
 Expected:
-- `Max Reflectivity Composite` — a green-to-red gradient bar with three labels below it: `5 dBZ`, roughly `35 dBZ`, and `70 dBZ`.
+- `Max Reflectivity Composite` — a green-to-red gradient bar with exactly three labels below it: `5 dBZ`, `40 dBZ`, and `75 dBZ`. The document holds 15 labelled entries in 5 dBZ steps, so first / middle / last land on those three values.
 - `GOES East Full Disk IR` — a gradient bar with **no** labels beneath it. Its 254 entries are all labelled `Undefined`.
 - `Lightning Heatmap` — no bar, and the text `No legend published for this product.`
 
@@ -1171,7 +1171,7 @@ Quality varies, and a client has to cope with all three cases:
 
 | Product | Legend |
 |---|---|
-| `C39-0x0302-0` | About 19 entries, all labelled, `5 dBZ` to `70 dBZ` |
+| `C39-0x0302-0` | 15 entries, all labelled, `5 dBZ` to `75 dBZ` in 5 dBZ steps |
 | `goes-east-fulldisk-hires-ir` | 254 entries, every label is the string `Undefined` |
 | `lightning-heatmap-global` | None. The CDN returns `403 AccessDenied` |
 
