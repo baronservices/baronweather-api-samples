@@ -193,13 +193,17 @@ Expected:
 
 - [ ] **Step 4: Confirm the insertion anchor exists**
 
-In the browser console, run:
+`app.js` is loaded as `type="module"`, so its top-level `map` is module-scoped and is **not**
+reachable from the console. Query the style document itself instead:
 
 ```js
-map.getStyle().layers.map(l => l.id + ' (' + l.type + ')')
+fetch('https://demotiles.maplibre.org/style.json')
+  .then(r => r.json())
+  .then(s => console.log(s.layers.map(l => l.id + ' (' + l.type + ')')))
 ```
 
-Expected: the list contains `geolines-label (symbol)`. Task 3 inserts the weather layer directly below this one, so confirm it exists now rather than debugging a failed `addLayer` later.
+Expected: the list contains `geolines-label (symbol)`. Task 3 inserts the weather layer directly
+below this one, so confirm it exists now rather than debugging a failed `addLayer` later.
 
 - [ ] **Step 5: Commit**
 
@@ -724,13 +728,18 @@ Expected: the request URL matches
 `https://api.velocityweather.com/v1/<key>/tms/1.0.0/C39-0x0302-0+Standard-Mercator+<timestamp>/<z>/<x>/<y>.png?ts=<digits>&sig=<...>%3D`
 and returns `200` with content type `image/png`.
 
-The `ts` and `sig` are appended by `transformRequest`, so they must **not** appear in the source definition. Confirm:
+The `ts` and `sig` are appended by `transformRequest`, so they must **not** also be baked into
+the stored source template. `app.js` is a module, so `map` is not reachable from the console —
+prove it two other ways instead:
 
-```js
-map.getSource('wx').tiles[0]
-```
+1. **Count the parameters in the request URL.** It must contain exactly one `ts=` and exactly
+   one `sig=`. Two of either means the template carries a signature *and* the hook appends
+   another, which is the bug this design exists to prevent.
+2. **Read `tmsTemplate` in `baron.js`.** The returned string must end in `/{z}/{x}/{y}.png` and
+   contain no `ts` or `sig` anywhere.
 
-Expected: the template string ends in `/{z}/{x}/{y}.png` with no `ts` or `sig`. This is the property that keeps the map alive past 15 minutes.
+Together those two prove the template is clean and the signature is per request, which is what
+keeps the map alive past 15 minutes.
 
 - [ ] **Step 7: Verify Refresh**
 
@@ -1204,7 +1213,10 @@ Load the page, select `GOES East Full Disk IR` in TMS mode, and leave it alone f
 
 Expected: new tiles load normally. No `403` in the Network panel.
 
-If tiles fail, the signature is being baked into the source URL instead of appended per request. Re-check that `map.getSource('wx').tiles[0]` has no `ts` or `sig`, and that `transformRequest` is present on the map options.
+If tiles fail, the signature is being baked into the source URL instead of appended per request.
+Re-check that `tmsTemplate` and `wmsTemplate` in `baron.js` return strings containing no `ts` or
+`sig`, that a tile request URL carries exactly one of each, and that `transformRequest` is
+present on the map options.
 
 - [ ] **Step 4: Run checklist step 9**
 
