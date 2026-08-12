@@ -126,6 +126,74 @@ async def config() -> JSONResponse:
     )
 
 
+# The three real causes of a 401 or 403 from the signing endpoint. Listing
+# them beats "unauthorized", which sends people to check the one thing —
+# the key string — that is usually right.
+AUTH_FAILURE_MESSAGE = (
+    "Baron rejected the credentials. Three things cause this: the key is not "
+    "entitled to this product, the secret is wrong or malformed, or this "
+    "machine's clock is more than about 15 minutes out, which makes every "
+    "signature look expired."
+)
+
+
+async def fetch_upstream(client: httpx.AsyncClient, url: str, params: dict):
+    """GET an upstream URL, turning transport failures into HTTP errors.
+
+    Timeouts and connection errors become 504 naming the host, so a reader of
+    the panel can tell "the network is down" from "Baron said no".
+    """
+    try:
+        return await client.get(url, params=params)
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail=f"{httpx.URL(url).host} did not answer within 10 seconds.",
+        )
+    except httpx.RequestError as error:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Could not reach {httpx.URL(url).host}: {error}",
+        )
+
+
+@app.get("/api/instance/{product}/{config}")
+async def instance(product: str, config: str) -> dict:
+    """Newest published instance time for a product.
+
+    The instance list is ordered newest first, so page_size=1 is the whole
+    query. An empty list is possible and is treated as an error: without a
+    time there is no tile URL to build.
+    """
+    require_credentials()
+    if find_product(product, config) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown product: {product}")
+
+    params = baron.signed_params()
+    params["page_size"] = 1
+
+    response = await fetch_upstream(
+        app.state.client, baron.instance_url(product, config), params
+    )
+
+    if response.status_code in (401, 403):
+        raise HTTPException(status_code=502, detail=AUTH_FAILURE_MESSAGE)
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Instance lookup failed with {response.status_code}.",
+        )
+
+    instances = response.json()
+    if not instances:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{product} has no published instances.",
+        )
+
+    return {"time": instances[0]["time"]}
+
+
 # ---------------------------------------------------------------------------
 # The static mount must stay at the bottom of this file.
 #

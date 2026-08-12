@@ -85,3 +85,70 @@ def test_the_env_file_is_not_served(client):
     assert client.get("/.env").status_code == 404
     assert client.get("/../.env").status_code == 404
     assert client.get("/%2e%2e/.env").status_code == 404
+
+
+# --- /api/instance -----------------------------------------------------------
+
+INSTANCE_PATH = "/api/instance/C39-0x0302-0/Standard-Mercator"
+
+
+def test_instance_returns_the_newest_time(client):
+    def handler(request):
+        # page_size=1 keeps the response to the newest entry.
+        assert request.url.params["page_size"] == "1"
+        assert "ts" in request.url.params and "sig" in request.url.params
+        return httpx.Response(
+            200,
+            json=[
+                {"time": "2026-08-11T16:20:38Z", "created": "2026-08-11T16:21:59Z"}
+            ],
+        )
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(INSTANCE_PATH)
+    assert response.status_code == 200
+    assert response.json() == {"time": "2026-08-11T16:20:38Z"}
+
+
+def test_instance_rejects_an_unknown_product(client):
+    response = client.get("/api/instance/not-a-product/Standard-Mercator")
+    assert response.status_code == 404
+
+
+def test_instance_explains_a_403_rather_than_calling_it_empty(client):
+    # A 403 here has three real causes and none of them is "no data". Saying
+    # "no instances" misdirects every first-run failure.
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(403, json={"message": "Expired timestamp"})
+    )
+    response = client.get(INSTANCE_PATH)
+    assert response.status_code == 502
+    detail = response.json()["detail"].lower()
+    assert "entitle" in detail
+    assert "secret" in detail
+    assert "clock" in detail
+
+
+def test_instance_reports_an_empty_list_as_an_error(client):
+    client.app.state.client = mock_upstream(lambda request: httpx.Response(200, json=[]))
+    response = client.get(INSTANCE_PATH)
+    assert response.status_code == 502
+    assert "no published instances" in response.json()["detail"]
+
+
+def test_instance_maps_a_timeout_to_504(client):
+    def handler(request):
+        raise httpx.TimeoutException("timed out", request=request)
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(INSTANCE_PATH)
+    assert response.status_code == 504
+    assert "api.velocityweather.com" in response.json()["detail"]
+
+
+def test_instance_returns_503_without_credentials(client, monkeypatch):
+    monkeypatch.setattr(baron, "_key", None)
+    monkeypatch.setattr(baron, "_secret", None)
+    response = client.get(INSTANCE_PATH)
+    assert response.status_code == 503
+    assert "env.example" in response.json()["detail"]
