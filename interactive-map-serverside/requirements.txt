@@ -1,0 +1,8 @@
+# Application
+fastapi==0.128.0
+uvicorn==0.42.0
+httpx==0.28.1
+python-dotenv==1.0.0
+
+# Development only. The application does not import pytest.
+pytest==9.0.2
