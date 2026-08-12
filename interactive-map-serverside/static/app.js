@@ -197,6 +197,7 @@ async function showProduct() {
   )
 
   setStatus(`Valid ${time}`)
+  await showLegend()
 }
 
 /**
@@ -325,6 +326,96 @@ function addWmsSource() {
     url: wmsUrl(view),
     coordinates: view.coordinates,
   })
+}
+
+// --- Legend -----------------------------------------------------------------
+//
+// Legend quality varies by product and a client has to cope with all of it:
+// Max Reflectivity publishes 15 labelled entries, GOES East publishes 254 whose
+// every label is the string "Undefined", and Lightning Heatmap publishes none
+// at all. "No legend" is a normal, permanent state — not an error.
+
+const legend = {
+  bar: document.getElementById('legend-bar'),
+  labels: document.getElementById('legend-labels'),
+  note: document.getElementById('legend-note'),
+}
+
+/** The literal label the API uses for an entry with no meaningful value. */
+const UNDEFINED_LABEL = 'Undefined'
+
+const NO_LEGEND_TEXT = 'No legend published for this product.'
+
+async function showLegend() {
+  // Cleared first, so a failure below cannot leave the previous product's
+  // legend sitting beside an error message about a different one.
+  clearLegend()
+
+  let data
+  try {
+    data = await getJson(`/api/legend/${state.product}/${state.config}`)
+  } catch (error) {
+    legend.note.textContent = NO_LEGEND_TEXT
+    // A 404 is the normal answer for some products, so it stays silent. Any
+    // other failure is a real fault and must not hide behind that silence.
+    if (error.status !== 404) {
+      console.warn(`Legend request failed: ${error.message}`)
+    }
+    return
+  }
+
+  const entries = data?.palettes?.[0]?.entries
+  if (!entries || entries.length === 0) {
+    legend.note.textContent = NO_LEGEND_TEXT
+    console.warn('Legend response carried no palette entries.')
+    return
+  }
+
+  drawGradient(entries)
+  drawLabels(entries)
+}
+
+function clearLegend() {
+  legend.bar.style.display = 'none'
+  legend.bar.style.background = ''
+  legend.labels.innerHTML = ''
+  legend.note.textContent = ''
+}
+
+function drawGradient(entries) {
+  // Colours arrive as #rrggbbaa, which CSS accepts directly.
+  if (entries.length === 1) {
+    // One entry would divide by zero below and produce NaN stops.
+    legend.bar.style.background = entries[0].color
+  } else {
+    const stops = entries.map(
+      (entry, index) =>
+        `${entry.color} ${((index / (entries.length - 1)) * 100).toFixed(2)}%`
+    )
+    legend.bar.style.background = `linear-gradient(to right, ${stops.join(', ')})`
+  }
+  legend.bar.style.display = 'block'
+}
+
+function drawLabels(entries) {
+  const real = entries
+    .map((entry) => entry.value)
+    .filter((value) => value && value !== UNDEFINED_LABEL)
+
+  // GOES East publishes 254 entries whose every label is "Undefined". Showing
+  // the ramp with no labels is more honest than printing "Undefined" three times.
+  if (real.length === 0) return
+
+  const picks =
+    real.length < 3
+      ? real
+      : [real[0], real[Math.floor(real.length / 2)], real[real.length - 1]]
+
+  for (const text of picks) {
+    const span = document.createElement('span')
+    span.textContent = text
+    legend.labels.append(span)
+  }
 }
 
 // --- Wiring -----------------------------------------------------------------
