@@ -20,8 +20,24 @@ from fastapi.staticfiles import StaticFiles
 import baron
 from cache import TTLCache
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+
+# Our own logger is the only one turned up to INFO.
+#
+# basicConfig configures the ROOT logger, and httpx logs every request it makes
+# at INFO — including the full signed URL. That URL carries the API key in its
+# path and a live signature in its query, so setting the root level to INFO
+# writes both to stdout on every proxied tile: hundreds of times a minute while
+# panning, into journald, docker logs, and CI output, with the signature
+# replayable for about 15 minutes.
+#
+# That would hand away through the log exactly what this app exists to keep out
+# of the browser. Turning httpx down explicitly as well, so that raising the
+# root level later cannot quietly re-open it.
 log = logging.getLogger("baron-map")
+log.setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # Products live here and nowhere else. app.js builds its radio buttons from
 # /api/config, so adding a product is a one-line change in one file.
