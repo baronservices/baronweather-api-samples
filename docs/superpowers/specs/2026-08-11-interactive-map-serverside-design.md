@@ -331,6 +331,15 @@ Images are returned with `Response(content=..., media_type=...)` and
 `Cache-Control: public, max-age=300`. Upstream status codes pass through unchanged, so a 403
 from Baron reaches the browser as a 403 rather than being flattened into a 500.
 
+**The upstream status passes through; the upstream body does not.** On any non-200 the proxy
+logs the body server-side and sends an empty one, with `Cache-Control: no-store`. Two reasons,
+both found during implementation. An error body is the one payload in this app whose contents
+another service decides, so a promise that nothing secret reaches the browser has to be kept
+here rather than by that service's formatting — the live API answers a bad signature with an
+HTML page, not the JSON in 3.1. And an error marked cacheable for five minutes means a
+developer who corrects a skewed clock still sees nothing afterwards, with no requests arriving
+to explain why.
+
 ### 6.3 Static mount ordering
 
 `app.mount("/", StaticFiles(directory="static", html=True))` matches every path, so it must be

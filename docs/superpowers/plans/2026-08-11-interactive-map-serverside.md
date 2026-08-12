@@ -1301,7 +1301,29 @@ async def tms_tile(
         tile_cache.set(key, response.content)
 
     # The upstream status passes through rather than being flattened, so a
-    # 403 storm in the browser console still reads as a 403.
+    # 403 storm in the browser console still reads as a 403. The upstream
+    # BODY does not: it is logged here, where it is safe to read, and the
+    # browser gets an empty one. Nothing in this app puts a credential in an
+    # error body, but an upstream could, and the promise that nothing secret
+    # reaches the browser should be kept by this code rather than by the
+    # formatting choices of a service we do not control.
+    #
+    # no-store on the error, too. Telling the browser to hold a 403 for five
+    # minutes means a developer who fixes a skewed clock still sees nothing,
+    # with no requests reaching the server to explain why.
+    if response.status_code != 200:
+        log.warning(
+            "Tile upstream returned %s: %s",
+            response.status_code,
+            response.text[:200],
+        )
+        return Response(
+            content=b"",
+            status_code=response.status_code,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store", "X-Cache": "MISS"},
+        )
+
     return Response(
         content=response.content,
         status_code=response.status_code,
@@ -1451,6 +1473,22 @@ async def wms_image(
     params.update(baron.signed_params())
 
     response = await fetch_upstream(app.state.client, url, params)
+
+    # Status through, body dropped and logged instead — same reasoning as the
+    # TMS route: an upstream error body is the one thing in this app whose
+    # contents we do not control, so it never reaches the browser.
+    if response.status_code != 200:
+        log.warning(
+            "WMS upstream returned %s: %s",
+            response.status_code,
+            response.text[:200],
+        )
+        return Response(
+            content=b"",
+            status_code=response.status_code,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
 
     return Response(
         content=response.content,
