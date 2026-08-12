@@ -285,6 +285,58 @@ async def wms_image(
     )
 
 
+@app.get("/api/legend/{product}/{config}")
+async def legend(product: str, config: str) -> Response:
+    """The product's published legend, or 404 when there is none.
+
+    The legend CDN is public, so this route needs no credentials and does not
+    call require_credentials(). It is proxied anyway for three reasons: the
+    browser then has exactly one origin and CORS never arises, the CDN's
+    403 can be normalised into an honest 404, and the response shares the
+    tile cache.
+
+    "No legend" is a normal, permanent state for some products, not a fault.
+    lightning-heatmap-global has never published one.
+    """
+    if find_product(product, config) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown product: {product}")
+
+    key = f"legend:{product}:{config}"
+    cached = tile_cache.get(key)
+    if cached is not None:
+        return Response(
+            content=cached,
+            media_type="application/json",
+            headers={"Cache-Control": "public, max-age=300", "X-Cache": "HIT"},
+        )
+
+    # No signed_params(): this host does not authenticate, and signing it
+    # would imply to a reader that it does.
+    response = await fetch_upstream(
+        app.state.client, baron.legend_url(product, config), {}
+    )
+
+    if response.status_code in (403, 404):
+        # The bucket denies ListBucket, so absent and forbidden look the same
+        # from outside. Both mean the same thing to the client: no legend.
+        raise HTTPException(
+            status_code=404, detail="No legend published for this product."
+        )
+    if response.status_code != 200:
+        # A 500 is an outage, not an absence. Keep them distinguishable.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Legend fetch failed with {response.status_code}.",
+        )
+
+    tile_cache.set(key, response.content)
+    return Response(
+        content=response.content,
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=300", "X-Cache": "MISS"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # The static mount must stay at the bottom of this file.
 #
