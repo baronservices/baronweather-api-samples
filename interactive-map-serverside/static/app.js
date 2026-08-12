@@ -38,6 +38,14 @@ const state = {
 
 let map = null
 
+// Bumped by every showProduct() call. A call that finds the counter has
+// moved on while it was awaiting knows a newer redraw superseded it, and
+// returns without touching shared state. Without this, two overlapping
+// calls both reach addSource, the slower one throws on the duplicate
+// source ID, and its rejection overwrites the correct status with an
+// error while state.time is left holding the wrong product's timestamp.
+let generation = 0
+
 /** Write the panel's message line. */
 function setStatus(text, isError = false) {
   panel.status.textContent = text
@@ -155,12 +163,19 @@ function createMap(center, zoom) {
 async function showProduct() {
   if (!state.ready) return
 
+  const mine = ++generation
+
   // Removed first, and the moveend handler above depends on the source being
   // absent for the whole of the await below.
   removeWeatherLayer()
   setStatus('Loading…')
 
   const { time } = await getJson(`/api/instance/${state.product}/${state.config}`)
+
+  // A newer redraw started while we were waiting. Adding a source now
+  // would throw on the duplicate id and clobber the newer call's status.
+  if (mine !== generation) return
+
   state.time = time
 
   if (state.protocol === 'tms') {
