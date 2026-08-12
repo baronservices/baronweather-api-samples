@@ -207,8 +207,13 @@ legend, there is no legend.
 ## Tests
 
 ```bash
+cd interactive-map-serverside
+source venv/bin/activate     # created by run.sh on first run
 pytest
 ```
+
+Run it from the app folder. `main.py` mounts `static/` on a relative path, so collection fails
+from anywhere else.
 
 No test touches the network and none needs credentials — upstream calls are faked with
 `httpx.MockTransport`. The suite covers what fails *silently*: a double-encoded signature
