@@ -275,3 +275,8 @@ replacement has loaded, so the previous image stays pinned to its own geographic
 then: on zoom it scales and blurs while staying correctly registered, and on pan the newly
 revealed edge is blank until the new image arrives at `moveend`. Tiled TMS does not do this —
 each tile is independent, so only the tiles entering the view need to load.
+
+A single WMS `GetMap` request is one rectangle in EPSG:3857 and genuinely cannot cross the
+antimeridian. When the view straddles it, the panel says so and part of the screen has no
+overlay — that is a real limit of one-image-per-view, not a bug. TMS is unaffected, since each
+tile is requested independently on either side of the seam.

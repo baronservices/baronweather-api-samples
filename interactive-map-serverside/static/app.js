@@ -38,13 +38,18 @@ const state = {
 
 let map = null
 
-// Bumped by every showProduct() call. A call that finds the counter has
-// moved on while it was awaiting knows a newer redraw superseded it, and
-// returns without touching shared state. Without this, two overlapping
-// calls both reach addSource, the slower one throws on the duplicate
-// source ID, and its rejection overwrites the correct status with an
-// error while state.time is left holding the wrong product's timestamp.
+// Bumped by every redraw() call. A call that finds the counter has moved on
+// while it was awaiting knows a newer redraw superseded it, and returns
+// without touching shared state. Without this, two overlapping calls both
+// reach addSource, the slower one throws on the duplicate source ID, and its
+// rejection overwrites the correct status with an error while state.time is
+// left holding the wrong product's timestamp.
 let generation = 0
+
+// Set once per redraw and checked by the map 'error' handler in createMap(),
+// so a burst of failed tile requests reports once instead of repainting the
+// panel on every single 403.
+let tileErrorReported = false
 
 /** Write the panel's message line. */
 function setStatus(text, isError = false) {
@@ -102,7 +107,16 @@ async function start() {
   state.ready = true
   state.product = config.products[0].product
   state.config = config.products[0].config
-  redraw()
+
+  // createMap() above already kicked off a style fetch that runs concurrently
+  // with everything this function just awaited. Which one finishes first is a
+  // race with no guaranteed winner — a warm connection to this app's own
+  // server can beat a slow or blocked style CDN, or lose to it — so check
+  // isStyleLoaded() rather than assume redraw() always arrives second.
+  // Guessing wrong throws "Style is not done loading" from addSource on
+  // whichever runs the race the other way.
+  if (map.isStyleLoaded()) redraw()
+  else map.on('load', redraw)
 }
 
 function buildProductList(products) {
@@ -130,6 +144,27 @@ function createMap(center, zoom) {
     style: 'https://demotiles.maplibre.org/style.json',
     center,
     zoom,
+  })
+
+  // The sibling registers this same handler to refresh a browser-computed
+  // signature before it expires. Server-side signing removed that need — the
+  // server signs fresh on every request — but it did not remove the need to
+  // tell the user something failed. A key entitled to metadata but not to
+  // tile rendering makes /api/instance succeed and every tile come back 403:
+  // showProduct() finishes normally and the panel reads "Valid <time>" in
+  // plain text over a map with no weather on it. The proxy sends empty error
+  // bodies on purpose, so the network panel does not explain this either.
+  map.on('error', (event) => {
+    console.error('Map error:', event.error && event.error.message)
+
+    if (tileErrorReported) return
+    tileErrorReported = true
+
+    // A more specific error already on screen — a failed instance lookup, the
+    // setup message — is more useful than this generic one. Leave it alone.
+    if (panel.status.classList.contains('error')) return
+
+    setStatus('Tiles failed to load. The key may not be entitled to this product.', true)
   })
 
   // One persistent listener, attached once, here, because this is the only
@@ -160,14 +195,21 @@ function createMap(center, zoom) {
  * Rebuild the weather layer. Product change, protocol change, and Refresh all
  * come through here, so there is one path to reason about rather than three.
  */
-async function showProduct() {
+async function showProduct(mine) {
   if (!state.ready) return
-
-  const mine = ++generation
 
   // Removed first, and the moveend handler above depends on the source being
   // absent for the whole of the await below.
   removeWeatherLayer()
+  // Clearing here, not only inside showLegend(), means a failure anywhere in
+  // this function — including the instance lookup below, which never reaches
+  // showLegend() at all — still leaves the panel without a stale colour scale
+  // from whatever product was showing before.
+  clearLegend()
+  // Reset so this redraw's own tile failures, if any, still get one report
+  // from the map 'error' handler instead of being silenced by a previous
+  // product's failure.
+  tileErrorReported = false
   setStatus('Loading…')
 
   const { time } = await getJson(`/api/instance/${state.product}/${state.config}`)
@@ -178,10 +220,22 @@ async function showProduct() {
 
   state.time = time
 
+  // Empty unless the WMS branch below finds the view clamped past the
+  // antimeridian, in which case it explains the resulting gap instead of
+  // leaving it silent.
+  let antimeridianNote = ''
+
   if (state.protocol === 'tms') {
     addTmsSource()
-  } else {
-    addWmsSource()
+  } else if (addWmsSource()) {
+    // A single WMS GetMap is one rectangle in EPSG:3857 and genuinely cannot
+    // cross the antimeridian, unlike a tiled TMS source, which requests each
+    // tile independently and has no such seam. viewGeometry()'s clamp keeps
+    // the bbox and the placed image honestly matched to each other, but that
+    // also means the sliver of the view past +/-180 is quietly uncovered.
+    // Say so, rather than leave a gap with no weather and no explanation.
+    antimeridianNote =
+      ' — the view crosses the antimeridian; one WMS image cannot cover both sides, so part of the view has no overlay. TMS mode shows it.'
   }
 
   map.addLayer(
@@ -196,7 +250,7 @@ async function showProduct() {
     map.getLayer(LABEL_ANCHOR) ? LABEL_ANCHOR : undefined
   )
 
-  setStatus(`Valid ${time}`)
+  setStatus(`Valid ${time}${antimeridianNote}`)
   await showLegend(mine)
 }
 
@@ -207,7 +261,15 @@ async function showProduct() {
  * reading "Loading…" with the real reason only in the console.
  */
 function redraw() {
-  showProduct().catch((error) => setStatus(error.message, true))
+  // One ticket per redraw, taken here rather than inside showProduct, so
+  // that the rejection path below can check it too. Patching each await
+  // site individually missed this one twice: a stale REJECTION overwrites
+  // the newer redraw's status just as surely as a stale success would.
+  const mine = ++generation
+  showProduct(mine).catch((error) => {
+    if (mine !== generation) return
+    setStatus(error.message, true)
+  })
 }
 
 function removeWeatherLayer() {
@@ -260,9 +322,11 @@ const MAX_DIMENSION = 3000
  */
 function viewGeometry() {
   const bounds = map.getBounds()
+  const rawWest = bounds.getWest()
+  const rawEast = bounds.getEast()
 
-  const west = Math.max(bounds.getWest(), -180)
-  const east = Math.min(bounds.getEast(), 180)
+  const west = Math.max(rawWest, -180)
+  const east = Math.min(rawEast, 180)
   const south = Math.max(bounds.getSouth(), -MAX_LATITUDE)
   const north = Math.min(bounds.getNorth(), MAX_LATITUDE)
 
@@ -293,6 +357,12 @@ function viewGeometry() {
       [east, south],
       [west, south],
     ],
+    // True when the clamp above actually discarded something: the raw bounds
+    // spilled past +/-180 while the view still spans less than the whole
+    // world. A viewport wider than the world also spills past +/-180, but for
+    // an unrelated reason (zoomed out, not straddling the seam), so it is
+    // excluded by the span check rather than reported as this case.
+    crossesAntimeridian: (rawEast > 180 || rawWest < -180) && rawEast - rawWest < 360,
   }
 }
 
@@ -326,6 +396,8 @@ function addWmsSource() {
     url: wmsUrl(view),
     coordinates: view.coordinates,
   })
+
+  return view.crossesAntimeridian
 }
 
 // --- Legend -----------------------------------------------------------------
@@ -347,8 +419,10 @@ const UNDEFINED_LABEL = 'Undefined'
 const NO_LEGEND_TEXT = 'No legend published for this product.'
 
 async function showLegend(mine) {
-  // Cleared first, so a failure below cannot leave the previous product's
-  // legend sitting beside an error message about a different one.
+  // showProduct() already cleared the legend before the instance lookup, so
+  // that covers failures that happen before this function is ever reached.
+  // Clearing again here keeps this function correct standing on its own,
+  // rather than relying on a caller to have done it first.
   clearLegend()
 
   let data
@@ -445,4 +519,17 @@ panel.protocol.addEventListener('click', (event) => {
 
 panel.refresh.addEventListener('click', redraw)
 
-start()
+start().catch((error) => {
+  // start()'s own try/catch covers only the /api/config fetch. createMap()
+  // runs after that and can fail two real ways: synchronously, with
+  // "ReferenceError: maplibregl is not defined" if the MapLibre script never
+  // loaded, or by throwing "Failed to initialize WebGL" out of MapLibre's
+  // painter setup if the browser or GPU has no WebGL. Either way, without
+  // this catch the rejection is unhandled and the panel is stuck on the grey
+  // "Starting…" placeholder forever, which reads as still-in-progress rather
+  // than failed.
+  setStatus(
+    `Map failed to start: ${error.message}. The MapLibre script may not have loaded, or this browser may not support WebGL.`,
+    true
+  )
+})
