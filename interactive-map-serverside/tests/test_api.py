@@ -152,3 +152,66 @@ def test_instance_returns_503_without_credentials(client, monkeypatch):
     response = client.get(INSTANCE_PATH)
     assert response.status_code == 503
     assert "env.example" in response.json()["detail"]
+
+
+# --- /api/tms ----------------------------------------------------------------
+
+TILE_PATH = (
+    "/api/tms/C39-0x0302-0/Standard-Mercator/2026-08-11T16:20:38Z/3/1/2.png"
+)
+
+
+def test_tile_is_proxied_with_its_bytes_intact(client):
+    def handler(request):
+        assert "/tms/1.0.0/" in str(request.url)
+        assert "C39-0x0302-0+Standard-Mercator+2026-08-11T16:20:38Z" in str(request.url)
+        return httpx.Response(200, content=b"\x89PNG-tile")
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(TILE_PATH)
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG-tile"
+    assert response.headers["content-type"] == "image/png"
+
+
+def test_a_second_request_is_served_from_the_cache(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"\x89PNG-tile")
+
+    client.app.state.client = mock_upstream(handler)
+    assert client.get(TILE_PATH).content == b"\x89PNG-tile"
+    assert client.get(TILE_PATH).content == b"\x89PNG-tile"
+    # One upstream call for two browser requests. This is the cache's entire job.
+    assert len(calls) == 1
+
+
+def test_an_upstream_error_is_not_cached(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(404, content=b"")
+
+    client.app.state.client = mock_upstream(handler)
+    client.get(TILE_PATH)
+    client.get(TILE_PATH)
+    # Caching a 404 would keep a transient failure alive for a full minute.
+    assert len(calls) == 2
+
+
+def test_upstream_status_passes_through(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(403, content=b"")
+    )
+    # Not flattened to 500: MapLibre's error handler should see the real code.
+    assert client.get(TILE_PATH).status_code == 403
+
+
+def test_tile_rejects_an_unknown_product(client):
+    response = client.get(
+        "/api/tms/not-a-product/Standard-Mercator/2026-08-11T16:20:38Z/3/1/2.png"
+    )
+    assert response.status_code == 404
