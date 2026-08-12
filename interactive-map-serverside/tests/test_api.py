@@ -7,6 +7,7 @@ lifespan handler creates when TestClient enters its context.
 
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -136,6 +137,29 @@ def test_instance_reports_an_empty_list_as_an_error(client):
     assert "no published instances" in response.json()["detail"]
 
 
+def test_instance_rejects_a_non_json_body(client):
+    # A 200 only means the connection succeeded, not that Baron sent JSON.
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(200, text="<html>oops</html>")
+    )
+    assert client.get(INSTANCE_PATH).status_code == 502
+
+
+def test_instance_rejects_a_json_object_instead_of_a_list(client):
+    # Truthy, so `if not instances` lets it through; instances[0] then fails.
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(200, json={"error": "nope"})
+    )
+    assert client.get(INSTANCE_PATH).status_code == 502
+
+
+def test_instance_rejects_an_entry_missing_the_time_field(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(200, json=[{"created": "x"}])
+    )
+    assert client.get(INSTANCE_PATH).status_code == 502
+
+
 def test_instance_maps_a_timeout_to_504(client):
     def handler(request):
         raise httpx.TimeoutException("timed out", request=request)
@@ -165,7 +189,9 @@ def test_tile_is_proxied_with_its_bytes_intact(client):
     def handler(request):
         assert "/tms/1.0.0/" in str(request.url)
         assert "C39-0x0302-0+Standard-Mercator+2026-08-11T16:20:38Z" in str(request.url)
-        return httpx.Response(200, content=b"\x89PNG-tile")
+        return httpx.Response(
+            200, content=b"\x89PNG-tile", headers={"content-type": "image/png"}
+        )
 
     client.app.state.client = mock_upstream(handler)
     response = client.get(TILE_PATH)
@@ -179,7 +205,9 @@ def test_a_second_request_is_served_from_the_cache(client):
 
     def handler(request):
         calls.append(request.url)
-        return httpx.Response(200, content=b"\x89PNG-tile")
+        return httpx.Response(
+            200, content=b"\x89PNG-tile", headers={"content-type": "image/png"}
+        )
 
     client.app.state.client = mock_upstream(handler)
     assert client.get(TILE_PATH).content == b"\x89PNG-tile"
@@ -217,6 +245,123 @@ def test_tile_rejects_an_unknown_product(client):
     assert response.status_code == 404
 
 
+# --- instance-time validation --------------------------------------------
+#
+# `time` is interpolated straight into the signed upstream URL (baron.tms_url
+# / baron.wms_url), so a value that is not a plain instance timestamp can
+# truncate that URL at a "?", divert the tail into a "#" fragment, or walk it
+# to a different resource with "../". The "?" and "#" cases are exercised
+# through the TMS route's {time} path segment, quoted with quote(..., safe="")
+# the way a browser or curl would, exactly as in the verified exploit. The
+# "../" case needs a literal "/" to form real dot-segments, which cannot
+# survive inside that single path segment — Starlette's router 404s on it
+# before our handler runs — so it is exercised through the WMS route, where
+# `time` is a query parameter and a "/" passes through untouched.
+
+
+def test_tile_rejects_a_time_with_a_query_string(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"", headers={"content-type": "image/png"})
+
+    client.app.state.client = mock_upstream(handler)
+    bad_time = quote("T?evil=1", safe="")
+    response = client.get(f"/api/tms/C39-0x0302-0/Standard-Mercator/{bad_time}/3/1/2.png")
+    assert response.status_code == 400
+    assert calls == []
+
+
+def test_tile_rejects_a_time_with_a_fragment(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"", headers={"content-type": "image/png"})
+
+    client.app.state.client = mock_upstream(handler)
+    bad_time = quote("T#evil", safe="")
+    response = client.get(f"/api/tms/C39-0x0302-0/Standard-Mercator/{bad_time}/3/1/2.png")
+    assert response.status_code == 400
+    assert calls == []
+
+
+def test_wms_rejects_a_time_with_dot_segments(client):
+    # A literal "/" cannot survive inside the TMS route's single {time} path
+    # segment — Starlette's own router 404s on it before our handler ever
+    # runs. The WMS route takes `time` as a query parameter instead, where a
+    # "/" passes through untouched, so this is where the dot-segment payload
+    # actually reaches valid_instance_time() to be rejected.
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"", headers={"content-type": "image/png"})
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(
+        WMS_PATH, params={**WMS_QUERY, "time": "../../../meta/tiles/x"}
+    )
+    assert response.status_code == 400
+    assert calls == []
+
+
+def test_tile_accepts_a_well_formed_instance_timestamp(client):
+    # The rejections above must not be the result of an overzealous check
+    # that also blocks the timestamp shape every real request uses.
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(
+            200, content=b"\x89PNG-tile", headers={"content-type": "image/png"}
+        )
+    )
+    assert client.get(TILE_PATH).status_code == 200
+
+
+def test_wms_rejects_a_malformed_time(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"", headers={"content-type": "image/png"})
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(WMS_PATH, params={**WMS_QUERY, "time": "T?evil=1"})
+    assert response.status_code == 400
+    assert calls == []
+
+
+# --- non-image 200 bodies (OGC error-as-200 convention) -----------------
+
+
+def test_tile_with_a_200_xml_body_is_rejected_and_not_cached(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(
+            200,
+            content=b"<ServiceExceptionReport>bad time</ServiceExceptionReport>",
+            headers={"content-type": "text/xml"},
+        )
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(TILE_PATH)
+    assert response.status_code == 502
+    # Not cached: a second request must reach upstream again, not a cache hit.
+    client.get(TILE_PATH)
+    assert len(calls) == 2
+
+
+def test_tile_with_a_200_empty_body_is_rejected(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(
+            200, content=b"", headers={"content-type": "image/png"}
+        )
+    )
+    assert client.get(TILE_PATH).status_code == 502
+
+
 # --- /api/wms ----------------------------------------------------------------
 
 WMS_PATH = "/api/wms/C39-0x0302-0/Standard-Mercator"
@@ -237,7 +382,9 @@ def test_wms_image_is_proxied(client):
         assert params["layers"] == "2026-08-11T16:20:38Z"
         assert params["width"] == "800"
         assert params["height"] == "600"
-        return httpx.Response(200, content=b"\x89PNG-image")
+        return httpx.Response(
+            200, content=b"\x89PNG-image", headers={"content-type": "image/png"}
+        )
 
     client.app.state.client = mock_upstream(handler)
     response = client.get(WMS_PATH, params=WMS_QUERY)
@@ -250,7 +397,9 @@ def test_wms_is_not_cached(client):
 
     def handler(request):
         calls.append(request.url)
-        return httpx.Response(200, content=b"\x89PNG-image")
+        return httpx.Response(
+            200, content=b"\x89PNG-image", headers={"content-type": "image/png"}
+        )
 
     client.app.state.client = mock_upstream(handler)
     client.get(WMS_PATH, params=WMS_QUERY)
@@ -268,6 +417,26 @@ def test_wms_rejects_a_zero_dimension(client):
 def test_wms_rejects_a_malformed_bbox(client):
     response = client.get(WMS_PATH, params={**WMS_QUERY, "bbox": "1,2,3"})
     assert response.status_code == 400
+
+
+def test_wms_with_a_200_xml_body_is_rejected(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(
+            200,
+            content=b"<ServiceExceptionReport>bad bbox</ServiceExceptionReport>",
+            headers={"content-type": "text/xml"},
+        )
+    )
+    assert client.get(WMS_PATH, params=WMS_QUERY).status_code == 502
+
+
+def test_wms_with_a_200_empty_body_is_rejected(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(
+            200, content=b"", headers={"content-type": "image/png"}
+        )
+    )
+    assert client.get(WMS_PATH, params=WMS_QUERY).status_code == 502
 
 
 def test_wms_rejects_an_unknown_product(client):
@@ -329,6 +498,41 @@ def test_a_second_legend_request_is_served_from_the_cache(client):
 
     client.app.state.client = mock_upstream(handler)
     client.get(LEGEND_PATH)
+    client.get(LEGEND_PATH)
+    assert len(calls) == 1
+
+
+def test_a_malformed_legend_body_is_rejected_and_not_cached(client):
+    # A 200 that is not valid JSON must not be forwarded and pinned as
+    # application/json: the browser's response.json() would fail in a way
+    # indistinguishable from a network error, and the panel would wrongly
+    # report "no legend published" for a product that has one — and keep
+    # saying so for the full cache TTL.
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"<html>nope</html>")
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(LEGEND_PATH)
+    assert response.status_code == 502
+    # Not cached: a second request must reach upstream again.
+    client.get(LEGEND_PATH)
+    assert len(calls) == 2
+
+
+def test_a_valid_legend_body_is_returned_and_cached(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, json=LEGEND_BODY)
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(LEGEND_PATH)
+    assert response.status_code == 200
+    assert response.json() == LEGEND_BODY
     client.get(LEGEND_PATH)
     assert len(calls) == 1
 

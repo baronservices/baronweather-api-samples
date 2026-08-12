@@ -11,6 +11,7 @@ readable side by side.
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Response
@@ -99,8 +100,11 @@ app = FastAPI(title="Baron Weather — Server-Side Map", lifespan=lifespan)
 def find_product(product: str, config: str) -> dict | None:
     """Look up a product/config pair in PRODUCTS.
 
-    Routes validate against this list so an arbitrary path cannot be turned
-    into an arbitrary upstream request signed with our key.
+    Routes validate against this list so an unknown product/config pair
+    cannot be turned into an arbitrary upstream request signed with our key.
+    It says nothing about the other path segments: the instance `time` is
+    caller-controlled too and is checked separately, with
+    baron.valid_instance_time, right after this lookup in each route.
     """
     for entry in PRODUCTS:
         if entry["product"] == product and entry["config"] == config:
@@ -173,6 +177,20 @@ async def fetch_upstream(client: httpx.AsyncClient, url: str, params: dict):
         )
 
 
+def looks_like_image(response: httpx.Response) -> bool:
+    """True when a 200 upstream response is actually an image body.
+
+    Answering an error with HTTP 200 plus an XML ServiceExceptionReport is
+    the OGC convention, and an HTML error page or a zero-byte body have also
+    been seen in the wild. All three would otherwise be cached for the full
+    TTL and re-served to every browser labelled image/png, so 200 alone is
+    not enough to trust — the content type and a non-empty body both have to
+    agree it is actually a picture.
+    """
+    content_type = response.headers.get("content-type", "")
+    return content_type.startswith("image/") and len(response.content) > 0
+
+
 @app.get("/api/instance/{product}/{config}")
 async def instance(product: str, config: str) -> dict:
     """Newest published instance time for a product.
@@ -200,14 +218,31 @@ async def instance(product: str, config: str) -> dict:
             detail=f"Instance lookup failed with {response.status_code}.",
         )
 
-    instances = response.json()
-    if not instances:
+    # A 200 status only means the connection succeeded, not that the body is
+    # the JSON list this route expects. Non-JSON, an object instead of a
+    # list, or a list whose entries lack "time" must all land on the same
+    # 502/504 contract as a transport failure — not escape it as an
+    # unhandled 500.
+    try:
+        instances = response.json()
+        if not instances:
+            raise HTTPException(
+                status_code=502,
+                detail=f"{product} has no published instances.",
+            )
+        time = instances[0]["time"]
+    except (ValueError, KeyError, TypeError, IndexError) as error:
+        log.warning(
+            "Instance lookup returned an unreadable body (%s): %s",
+            error,
+            response.text[:200],
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"{product} has no published instances.",
+            detail=f"{product} returned an unreadable instance list.",
         )
 
-    return {"time": instances[0]["time"]}
+    return {"time": time}
 
 
 @app.get("/api/tms/{product}/{config}/{time}/{z}/{x}/{y}.png")
@@ -225,6 +260,18 @@ async def tms_tile(
     require_credentials()
     if find_product(product, config) is None:
         raise HTTPException(status_code=404, detail=f"Unknown product: {product}")
+    # `time` is interpolated straight into the signed upstream URL (see
+    # baron.tms_url). Unvalidated, a "?" truncates that URL, a "#" swallows
+    # the tile path into a fragment, and "../" walks it to a different
+    # resource under our key — whose response would then be cached and
+    # served as this tile. Reject anything that is not the instance
+    # timestamp shape before it ever reaches the URL builder.
+    if not baron.valid_instance_time(time):
+        raise HTTPException(
+            status_code=400,
+            detail="time must look like an instance timestamp, e.g. "
+            "2026-08-11T16:20:38Z.",
+        )
 
     key = f"tms:{product}:{config}:{time}:{z}:{x}:{y}"
     cached = tile_cache.get(key)
@@ -240,6 +287,21 @@ async def tms_tile(
         baron.tms_url(product, config, time, z, x, y),
         baron.signed_params(),
     )
+
+    # A 200 is not proof of a tile: see looks_like_image. Catching this
+    # before the cache write is what keeps a ServiceExceptionReport from
+    # being pinned as image/png for the next sixty seconds.
+    if response.status_code == 200 and not looks_like_image(response):
+        log.warning(
+            "Tile upstream returned 200 with a non-image body (content-type "
+            "%r): %s",
+            response.headers.get("content-type", ""),
+            response.text[:200],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Tile upstream returned a non-image body.",
+        )
 
     # Only success is worth keeping. Caching a 403 or a 404 would hold a
     # transient failure in place for the full TTL.
@@ -296,6 +358,15 @@ async def wms_image(
     require_credentials()
     if find_product(product, config) is None:
         raise HTTPException(status_code=404, detail=f"Unknown product: {product}")
+    # See the matching check in tms_tile: `time` becomes the WMS "layers"
+    # parameter (see baron.wms_url) and is just as capable of truncating or
+    # redirecting the signed upstream request if left unvalidated.
+    if not baron.valid_instance_time(time):
+        raise HTTPException(
+            status_code=400,
+            detail="time must look like an instance timestamp, e.g. "
+            "2026-08-11T16:20:38Z.",
+        )
 
     if width < 1 or height < 1:
         raise HTTPException(
@@ -310,6 +381,23 @@ async def wms_image(
     params.update(baron.signed_params())
 
     response = await fetch_upstream(app.state.client, url, params)
+
+    # A 200 is not proof of an image: see looks_like_image. WMS answers a
+    # bad request with a 200 and an XML ServiceExceptionReport just as
+    # readily as TMS does, and this route has no cache to protect but the
+    # browser still deserves 502 rather than an XML document labelled
+    # image/png.
+    if response.status_code == 200 and not looks_like_image(response):
+        log.warning(
+            "WMS upstream returned 200 with a non-image body (content-type "
+            "%r): %s",
+            response.headers.get("content-type", ""),
+            response.text[:200],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="WMS upstream returned a non-image body.",
+        )
 
     # The upstream status passes through rather than being flattened, so a
     # 403 storm in the browser console still reads as a 403. The upstream
@@ -378,9 +466,33 @@ async def legend(product: str, config: str) -> Response:
         )
     if response.status_code != 200:
         # A 500 is an outage, not an absence. Keep them distinguishable.
+        log.warning(
+            "Legend upstream returned %s: %s",
+            response.status_code,
+            response.text[:200],
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Legend fetch failed with {response.status_code}.",
+        )
+
+    # A 200 body is not proof of a legend: malformed JSON forwarded verbatim
+    # would be cached and handed to the browser as application/json, whose
+    # own JSON.parse then fails in a way indistinguishable from a network
+    # error. That failure is never allowed to read as 404 — 404 is this
+    # app's signal for "genuinely absent", and a parse failure is an outage,
+    # which has to stay distinguishable from an absence just like a 500 does.
+    try:
+        response.json()
+    except ValueError as error:
+        log.warning(
+            "Legend upstream returned unparseable JSON (%s): %s",
+            error,
+            response.text[:200],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Legend body was not valid JSON: {error}",
         )
 
     tile_cache.set(key, response.content)
@@ -399,4 +511,10 @@ async def legend(product: str, config: str) -> Response:
 # whole API. Only static/ is exposed, which is why .env — one level up — is
 # unreachable.
 # ---------------------------------------------------------------------------
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# A bare "static" resolves against the process's current working directory,
+# not this file's location, so `python3 -m pytest` from any other directory
+# raises RuntimeError before a single test runs. baron.py anchors ".env" the
+# same way for the same reason: import-time behaviour must not depend on
+# where the process happened to be launched from.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

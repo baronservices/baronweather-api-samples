@@ -11,6 +11,7 @@ around — and, more to the point, so no route handler ever holds them.
 import hashlib
 import hmac
 import os
+import re
 from base64 import urlsafe_b64encode
 from pathlib import Path
 from time import time
@@ -92,6 +93,19 @@ def signed_params() -> dict:
 # GetCapabilities reports the same figure as MaxWidth and MaxHeight.
 WMS_MAX_DIMENSION = 3000
 
+# Instance times come from /meta/tiles as "2026-08-11T16:20:38Z" and are
+# interpolated straight into the signed upstream URL. Anything else is
+# rejected before signing: a "?" truncates that URL, a "#" swallows the
+# tile path, and dot segments walk it to a different resource under our
+# key. This is the only caller-controlled value that reaches the URL, so
+# it is the only one that needs the check.
+INSTANCE_TIME = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+
+
+def valid_instance_time(time: str) -> bool:
+    """True when `time` is an instance timestamp and safe to interpolate."""
+    return bool(INSTANCE_TIME.match(time))
+
 
 def instance_url(product: str, config: str) -> str:
     """URL for the product's instance list, newest first.
@@ -141,6 +155,20 @@ def wms_url(
     HTTP 200 and silently distorts the image, so the caller must derive one
     dimension from the other. app.js does this.
     """
+    width, height = int(width), int(height)
+    # Clamping width and height independently — two separate min() calls —
+    # is exactly what produces the aspect-ratio mismatch this docstring (and
+    # app.js) warns about: a 4:1 request at 4000x1000 would come out 3000x1000,
+    # a 3:1 grid over a 4:1 region. Scale both dimensions by the same factor
+    # instead, so the ratio the caller asked for survives the clamp. floor at
+    # 1 so a very thin dimension cannot round down to 0 and get rejected
+    # upstream as InvalidParameter.
+    longest = max(width, height)
+    if longest > WMS_MAX_DIMENSION:
+        scale = WMS_MAX_DIMENSION / longest
+        width = max(1, round(width * scale))
+        height = max(1, round(height * scale))
+
     url = f"{API_BASE}/{_key}/wms/{product}/{config}"
     params = {
         "service": "WMS",
@@ -148,8 +176,8 @@ def wms_url(
         "request": "GetMap",
         "crs": "EPSG:3857",
         "bbox": bbox,
-        "width": min(int(width), WMS_MAX_DIMENSION),
-        "height": min(int(height), WMS_MAX_DIMENSION),
+        "width": width,
+        "height": height,
         "format": "image/png",
         "transparent": "true",
         "layers": time,

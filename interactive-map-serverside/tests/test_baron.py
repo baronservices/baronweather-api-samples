@@ -177,9 +177,49 @@ def test_wms_url_clamps_dimensions_to_the_service_maximum(credentials):
     _, params = baron.wms_url(
         "p", "c", "t", "-1,-2,3,4", 5000, 4000
     )
-    # 3001 returns 400 InvalidParameter, so clamp rather than let it fail.
+    # 3001 returns 400 InvalidParameter, so clamp rather than let it fail —
+    # but scaled by the SAME factor, so the 5:4 aspect ratio survives the
+    # clamp instead of being stretched into a square.
     assert params["width"] == 3000
-    assert params["height"] == 3000
+    assert params["height"] == 2400
+
+
+def test_wms_url_clamp_preserves_a_wide_aspect_ratio(credentials):
+    # Independent min() calls on width and height would send this upstream
+    # as 3000x1000 — a 3:1 grid over a 4:1 region — silently distorting the
+    # image. Scaling both by the same factor keeps it 4:1.
+    _, params = baron.wms_url(
+        "p", "c", "t", "-1,-2,3,4", 4000, 1000
+    )
+    assert params["width"] == 3000
+    assert params["height"] == 750
+
+
+def test_wms_url_leaves_small_dimensions_untouched(credentials):
+    _, params = baron.wms_url(
+        "p", "c", "t", "-1,-2,3,4", 800, 600
+    )
+    assert params["width"] == 800
+    assert params["height"] == 600
+
+
+def test_valid_instance_time_accepts_the_documented_shape():
+    assert baron.valid_instance_time("2026-08-11T16:20:38Z") is True
+
+
+def test_valid_instance_time_rejects_a_query_string():
+    # A "?" truncates the signed upstream URL, discarding everything after it.
+    assert baron.valid_instance_time("T?evil=1") is False
+
+
+def test_valid_instance_time_rejects_a_fragment():
+    # A "#" pushes everything after it out of the path entirely.
+    assert baron.valid_instance_time("T#evil") is False
+
+
+def test_valid_instance_time_rejects_dot_segments():
+    # Dot segments collapse to walk the signed URL to a different resource.
+    assert baron.valid_instance_time("../../../meta/tiles/x") is False
 
 
 def test_legend_url_is_public_and_unsigned():
