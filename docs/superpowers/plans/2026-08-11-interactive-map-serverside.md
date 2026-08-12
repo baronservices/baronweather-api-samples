@@ -1788,6 +1788,14 @@ const state = {
 
 let map = null
 
+// Bumped by every showProduct() call. A call that finds the counter has moved
+// on while it was awaiting knows a newer redraw superseded it, and returns
+// without touching shared state. Without this, two overlapping calls both
+// reach addSource, the slower one throws on the duplicate source ID, and its
+// rejection overwrites the correct status with an error while state.time is
+// left holding the wrong product's timestamp.
+let generation = 0
+
 /** Write the panel's message line. */
 function setStatus(text, isError = false) {
   panel.status.textContent = text
@@ -1905,12 +1913,19 @@ function createMap(center, zoom) {
 async function showProduct() {
   if (!state.ready) return
 
+  const mine = ++generation
+
   // Removed first, and the moveend handler above depends on the source being
   // absent for the whole of the await below.
   removeWeatherLayer()
   setStatus('Loading…')
 
   const { time } = await getJson(`/api/instance/${state.product}/${state.config}`)
+
+  // A newer redraw started while we were waiting. Adding a source now
+  // would throw on the duplicate id and clobber the newer call's status.
+  if (mine !== generation) return
+
   state.time = time
 
   if (state.protocol === 'tms') {
@@ -2149,7 +2164,7 @@ const UNDEFINED_LABEL = 'Undefined'
 
 const NO_LEGEND_TEXT = 'No legend published for this product.'
 
-async function showLegend() {
+async function showLegend(mine) {
   // Cleared first, so a failure below cannot leave the previous product's
   // legend sitting beside an error message about a different one.
   clearLegend()
@@ -2158,6 +2173,10 @@ async function showLegend() {
   try {
     data = await getJson(`/api/legend/${state.product}/${state.config}`)
   } catch (error) {
+    // A superseded request must not overwrite the newer product's legend
+    // with this one's "no legend" text.
+    if (mine !== generation) return
+
     legend.note.textContent = NO_LEGEND_TEXT
     // A 404 is the normal answer for some products, so it stays silent. Any
     // other failure is a real fault and must not hide behind that silence.
@@ -2166,6 +2185,11 @@ async function showLegend() {
     }
     return
   }
+
+  // A newer redraw finished while this legend was in flight. Drawing now
+  // would paint this product's scale over the one the map is actually
+  // showing, which is worse than showing nothing.
+  if (mine !== generation) return
 
   const entries = data?.palettes?.[0]?.entries
   if (!entries || entries.length === 0) {
@@ -2235,7 +2259,7 @@ with:
 
 ```js
   setStatus(`Valid ${time}`)
-  await showLegend()
+  await showLegend(mine)
 }
 ```
 
@@ -2638,6 +2662,16 @@ and `showLegend` is defined once and referenced with the same name and signature
 **Working software at every commit.** Tasks 1–8 each end with a passing test run. Task 9 ends
 with a working map in both delivery modes. Task 10 adds the legend to a map that already worked.
 No task commits code that calls a function defined in a later task.
+
+**Amended after execution (2026-08-12).** Review caught the same class of bug twice in
+code this plan specified: an async function that mutates shared UI state after an `await`,
+with no check that it is still the current request. `showProduct()` had it — two quick product
+clicks made the slower call throw on a duplicate source id and left `state.time` holding the
+wrong product's timestamp — and `showLegend()`, called one line later, had it too, so a slow
+legend could paint over the product the map was actually showing. Both were reproduced with
+harnesses before being fixed. The `generation` counter in Tasks 9 and 10 above is that fix,
+folded back in so re-running this plan does not reproduce either race. Neither was an
+implementer error; both transcriptions were byte-exact.
 
 **Test count checkpoints.** 5 after Task 1, 13 after Task 2, 19 after Task 3, 26 after Task 4,
 32 after Task 5, 37 after Task 6, 42 after Task 7, 48 after Task 8. If a run disagrees, a test
