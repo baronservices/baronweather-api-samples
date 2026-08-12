@@ -4,6 +4,22 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# Python 3.10 or newer is required, and the failure without this check is
+# thoroughly misleading. The code uses `str | None` annotations at module
+# scope, which 3.9 evaluates at import and rejects with a TypeError — but pip
+# fails first, saying it cannot find uvicorn==0.42.0, which reads as a broken
+# package index or a typo'd pin rather than "your Python is too old". macOS
+# still ships 3.9 as /usr/bin/python3, so this is the default first-run path
+# for anyone without pyenv.
+if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo "Error: Python 3.10 or newer is required."
+  echo "       Found $(python3 --version 2>&1) at $(command -v python3)."
+  echo
+  echo "       Install a newer Python, or point this script at one:"
+  echo "         PATH=/path/to/python3.11/bin:\$PATH ./run.sh"
+  exit 1
+fi
+
 if [ ! -d venv ]; then
   echo "Creating the virtual environment…"
   python3 -m venv venv

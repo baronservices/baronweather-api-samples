@@ -12,7 +12,8 @@ compared.
 
 ## Setup
 
-Every command in this README runs from `interactive-map-serverside/`.
+Every command in this README runs from `interactive-map-serverside/`, and needs **Python 3.10
+or newer** — `run.sh` checks and says so if not. macOS still ships 3.9 as `/usr/bin/python3`.
 
 ```bash
 cp env.example .env      # then fill in your key and secret

@@ -546,3 +546,68 @@ def test_legend_works_without_credentials(client, monkeypatch):
         lambda request: httpx.Response(200, json=LEGEND_BODY)
     )
     assert client.get(LEGEND_PATH).status_code == 200
+
+
+# --- The upstream error body never reaches the browser -----------------------
+#
+# These pin an invariant that had no test at all: an upstream failure body is
+# logged server-side and replaced with an empty one, because that body is the
+# only payload in this app whose contents another service decides. Every other
+# non-200 mock in this file uses content=b"", so deleting the suppression
+# blocks from main.py used to leave the whole suite green.
+
+# Deliberately shaped like the worst case: an upstream that echoes the request
+# it received, signature and all.
+LEAKY_ERROR_BODY = (
+    b'{"status":403,"echo":"https://api.velocityweather.com/v1/SECRET_KEY'
+    b'/tms/1.0.0/C39-0x0302-0+Standard-Mercator+2026-01-01T00:00:00Z'
+    b'/3/1/2.png?ts=1786549272&sig=27DQTO3VTfThX0wAh12zjDrmCwQ%3D"}'
+)
+
+
+def test_tile_error_body_never_reaches_the_browser(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(403, content=LEAKY_ERROR_BODY)
+    )
+    response = client.get(TILE_PATH)
+
+    # The status passes through — that part is deliberate, so a 403 storm in
+    # the browser console still reads as a 403.
+    assert response.status_code == 403
+    # The body does not.
+    assert response.content == b""
+    assert b"SECRET_KEY" not in response.content
+    assert b"sig=" not in response.content
+
+
+def test_tile_error_is_not_cacheable_by_the_browser(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(403, content=LEAKY_ERROR_BODY)
+    )
+    # max-age on an error lets a browser hold a 403 for minutes after the user
+    # has fixed the cause, with no request reaching the server to explain why.
+    assert client.get(TILE_PATH).headers["cache-control"] == "no-store"
+
+
+def test_tile_success_is_still_cacheable(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(
+            200, content=b"\x89PNG-tile", headers={"content-type": "image/png"}
+        )
+    )
+    response = client.get(TILE_PATH)
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG-tile"
+    assert response.headers["cache-control"] == "public, max-age=300"
+
+
+def test_wms_error_body_never_reaches_the_browser(client):
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(403, content=LEAKY_ERROR_BODY)
+    )
+    response = client.get(WMS_PATH, params=WMS_QUERY)
+
+    assert response.status_code == 403
+    assert response.content == b""
+    assert b"SECRET_KEY" not in response.content
+    assert b"sig=" not in response.content
