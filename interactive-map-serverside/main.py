@@ -13,7 +13,7 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -192,6 +192,52 @@ async def instance(product: str, config: str) -> dict:
         )
 
     return {"time": instances[0]["time"]}
+
+
+@app.get("/api/tms/{product}/{config}/{time}/{z}/{x}/{y}.png")
+async def tms_tile(
+    product: str, config: str, time: str, z: int, x: int, y: int
+) -> Response:
+    """One signed, proxied, cached TMS tile.
+
+    z, x, and y pass through untouched, so Baron's bottom-up row order still
+    reaches the browser and app.js still needs scheme: 'tms' on the source.
+
+    The instance time is part of the cache key, so a cached tile can never be
+    stale — a new instance simply produces keys nobody has asked for yet.
+    """
+    require_credentials()
+    if find_product(product, config) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown product: {product}")
+
+    key = f"tms:{product}:{config}:{time}:{z}:{x}:{y}"
+    cached = tile_cache.get(key)
+    if cached is not None:
+        return Response(
+            content=cached,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=300", "X-Cache": "HIT"},
+        )
+
+    response = await fetch_upstream(
+        app.state.client,
+        baron.tms_url(product, config, time, z, x, y),
+        baron.signed_params(),
+    )
+
+    # Only success is worth keeping. Caching a 403 or a 404 would hold a
+    # transient failure in place for the full TTL.
+    if response.status_code == 200:
+        tile_cache.set(key, response.content)
+
+    # The upstream status passes through rather than being flattened, so a
+    # 403 storm in the browser console still reads as a 403.
+    return Response(
+        content=response.content,
+        status_code=response.status_code,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=300", "X-Cache": "MISS"},
+    )
 
 
 # ---------------------------------------------------------------------------
