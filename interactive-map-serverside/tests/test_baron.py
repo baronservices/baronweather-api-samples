@@ -106,3 +106,86 @@ def test_signature_is_passed_raw_so_httpx_encodes_it_once(monkeypatch):
 
     assert "%3D" in str(request.url)
     assert "%253D" not in str(request.url)
+
+
+# --- Upstream URL building ---------------------------------------------------
+
+
+@pytest.fixture
+def credentials(monkeypatch):
+    monkeypatch.setenv("BARON_API_KEY", "demo_key")
+    monkeypatch.setenv("BARON_API_SECRET", "demo_secret")
+    baron.load_credentials()
+
+
+def test_instance_url_targets_the_tiles_metadata_endpoint(credentials):
+    url = baron.instance_url("C39-0x0302-0", "Standard-Mercator")
+    assert url == (
+        "https://api.velocityweather.com/v1/demo_key"
+        "/meta/tiles/product-instances/C39-0x0302-0/Standard-Mercator.json"
+    )
+
+
+def test_tms_url_joins_the_layer_name_with_plus_signs(credentials):
+    url = baron.tms_url(
+        "C39-0x0302-0", "Standard-Mercator", "2026-08-11T16:20:38Z", 3, 1, 2
+    )
+    assert url == (
+        "https://api.velocityweather.com/v1/demo_key/tms/1.0.0/"
+        "C39-0x0302-0+Standard-Mercator+2026-08-11T16:20:38Z/3/1/2.png"
+    )
+
+
+def test_tms_url_survives_httpx_without_quoting(credentials):
+    # "+" and ":" are legal in a path segment and must reach the API intact.
+    # Quoting them to %2B and %3A produces a 404 that looks like a missing
+    # product. Verified against httpx 0.28.1 on 2026-08-11.
+    url = baron.tms_url(
+        "C39-0x0302-0", "Standard-Mercator", "2026-08-11T16:20:38Z", 3, 1, 2
+    )
+    sent = str(httpx.Request("GET", url).url)
+    assert "C39-0x0302-0+Standard-Mercator+2026-08-11T16:20:38Z" in sent
+    assert "%2B" not in sent
+
+
+def test_wms_url_carries_the_required_parameters(credentials):
+    url, params = baron.wms_url(
+        "C39-0x0302-0",
+        "Standard-Mercator",
+        "2026-08-11T16:20:38Z",
+        "-1.0,-2.0,3.0,4.0",
+        800,
+        600,
+    )
+    assert url == (
+        "https://api.velocityweather.com/v1/demo_key/wms/C39-0x0302-0/Standard-Mercator"
+    )
+    assert params["service"] == "WMS"
+    assert params["version"] == "1.3.0"        # 1.1.1 is rejected outright
+    assert params["request"] == "GetMap"
+    assert params["crs"] == "EPSG:3857"        # the only projection offered
+    assert params["format"] == "image/png"
+    assert params["transparent"] == "true"
+    assert params["bbox"] == "-1.0,-2.0,3.0,4.0"
+    assert params["width"] == 800
+    assert params["height"] == 600
+    # LAYERS is the instance timestamp. The product code returns 400.
+    assert params["layers"] == "2026-08-11T16:20:38Z"
+
+
+def test_wms_url_clamps_dimensions_to_the_service_maximum(credentials):
+    _, params = baron.wms_url(
+        "p", "c", "t", "-1,-2,3,4", 5000, 4000
+    )
+    # 3001 returns 400 InvalidParameter, so clamp rather than let it fail.
+    assert params["width"] == 3000
+    assert params["height"] == 3000
+
+
+def test_legend_url_is_public_and_unsigned():
+    url = baron.legend_url("C39-0x0302-0", "Standard-Mercator")
+    assert url == (
+        "https://static.velocityweather.com/legends"
+        "/C39-0x0302-0/Standard-Mercator/legend.json"
+    )
+    assert "ts=" not in url and "sig=" not in url

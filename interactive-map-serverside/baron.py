@@ -86,3 +86,81 @@ def signed_params() -> dict:
         _secret.encode(), f"{_key}:{ts}".encode(), hashlib.sha1
     ).digest()
     return {"ts": ts, "sig": urlsafe_b64encode(digest).decode()}
+
+
+# The service rejects width or height above this with 400 InvalidParameter.
+# GetCapabilities reports the same figure as MaxWidth and MaxHeight.
+WMS_MAX_DIMENSION = 3000
+
+
+def instance_url(product: str, config: str) -> str:
+    """URL for the product's instance list, newest first.
+
+    Observational products live under /meta/tiles/. Forecast products live
+    under /meta/maps/, which this app does not use.
+    """
+    return (
+        f"{API_BASE}/{_key}/meta/tiles/product-instances/{product}/{config}.json"
+    )
+
+
+def tms_url(product: str, config: str, time: str, z: int, x: int, y: int) -> str:
+    """URL for one TMS tile.
+
+    The layer name joins three fields with "+", and the instance time is
+    required — omitting it returns 404 rather than the newest data.
+
+    Neither the "+" nor the ":" inside the timestamp needs quoting: both are
+    legal in a path segment and httpx leaves them alone. Quoting them yields
+    a 404 that reads like a missing product.
+    """
+    layer = f"{product}+{config}+{time}"
+    return f"{API_BASE}/{_key}/tms/1.0.0/{layer}/{z}/{x}/{y}.png"
+
+
+def wms_url(
+    product: str,
+    config: str,
+    time: str,
+    bbox: str,
+    width: int,
+    height: int,
+) -> tuple[str, dict]:
+    """URL and query parameters for one WMS GetMap image.
+
+    Returns the pair unjoined on purpose. The caller passes params straight to
+    httpx, which encodes them correctly; building one string here would invite
+    somebody to append the signature by hand and re-create the %253D bug.
+
+    Three constraints, each confirmed against the live service:
+      - layers is the *instance timestamp*; the product code returns 400.
+      - version must be 1.3.0; 1.1.1 is rejected.
+      - crs=EPSG:3857 is the only projection offered.
+
+    A bbox whose aspect ratio disagrees with width and height still returns
+    HTTP 200 and silently distorts the image, so the caller must derive one
+    dimension from the other. app.js does this.
+    """
+    url = f"{API_BASE}/{_key}/wms/{product}/{config}"
+    params = {
+        "service": "WMS",
+        "version": "1.3.0",
+        "request": "GetMap",
+        "crs": "EPSG:3857",
+        "bbox": bbox,
+        "width": min(int(width), WMS_MAX_DIMENSION),
+        "height": min(int(height), WMS_MAX_DIMENSION),
+        "format": "image/png",
+        "transparent": "true",
+        "layers": time,
+    }
+    return url, params
+
+
+def legend_url(product: str, config: str) -> str:
+    """URL for the product's published legend.
+
+    Public CDN, no signature. Note this is a different document from the
+    geotiff_legend.json that ../geotiff_fetch uses.
+    """
+    return f"{LEGEND_BASE}/{product}/{config}/legend.json"
