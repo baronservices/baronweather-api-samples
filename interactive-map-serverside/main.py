@@ -240,6 +240,51 @@ async def tms_tile(
     )
 
 
+@app.get("/api/wms/{product}/{config}")
+async def wms_image(
+    product: str,
+    config: str,
+    time: str,
+    bbox: str,
+    width: int,
+    height: int,
+) -> Response:
+    """One signed, proxied WMS GetMap image for the current view.
+
+    Not cached, and not by oversight: WMS serves one image for one arbitrary
+    viewport, so the same URL is essentially never requested twice.
+
+    app.js derives height from the bbox aspect ratio, because a bbox whose
+    aspect disagrees with width and height still returns HTTP 200 and silently
+    distorts the image. There is no upstream error to catch, so the mismatch
+    has to be prevented rather than detected.
+    """
+    require_credentials()
+    if find_product(product, config) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown product: {product}")
+
+    if width < 1 or height < 1:
+        raise HTTPException(
+            status_code=400, detail="width and height must both be at least 1."
+        )
+    if len(bbox.split(",")) != 4:
+        raise HTTPException(
+            status_code=400, detail="bbox must be minx,miny,maxx,maxy."
+        )
+
+    url, params = baron.wms_url(product, config, time, bbox, width, height)
+    params.update(baron.signed_params())
+
+    response = await fetch_upstream(app.state.client, url, params)
+
+    return Response(
+        content=response.content,
+        status_code=response.status_code,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # The static mount must stay at the bottom of this file.
 #
