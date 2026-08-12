@@ -215,3 +215,63 @@ def test_tile_rejects_an_unknown_product(client):
         "/api/tms/not-a-product/Standard-Mercator/2026-08-11T16:20:38Z/3/1/2.png"
     )
     assert response.status_code == 404
+
+
+# --- /api/wms ----------------------------------------------------------------
+
+WMS_PATH = "/api/wms/C39-0x0302-0/Standard-Mercator"
+WMS_QUERY = {
+    "time": "2026-08-11T16:20:38Z",
+    "bbox": "-10018754.2,2504688.5,-8766409.9,3757032.8",
+    "width": "800",
+    "height": "600",
+}
+
+
+def test_wms_image_is_proxied(client):
+    def handler(request):
+        params = request.url.params
+        assert params["request"] == "GetMap"
+        assert params["version"] == "1.3.0"
+        assert params["crs"] == "EPSG:3857"
+        assert params["layers"] == "2026-08-11T16:20:38Z"
+        assert params["width"] == "800"
+        assert params["height"] == "600"
+        return httpx.Response(200, content=b"\x89PNG-image")
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(WMS_PATH, params=WMS_QUERY)
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG-image"
+
+
+def test_wms_is_not_cached(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=b"\x89PNG-image")
+
+    client.app.state.client = mock_upstream(handler)
+    client.get(WMS_PATH, params=WMS_QUERY)
+    client.get(WMS_PATH, params=WMS_QUERY)
+    # A GetMap image is built for one arbitrary viewport and is essentially
+    # never requested twice, so caching it would spend memory for nothing.
+    assert len(calls) == 2
+
+
+def test_wms_rejects_a_zero_dimension(client):
+    response = client.get(WMS_PATH, params={**WMS_QUERY, "width": "0"})
+    assert response.status_code == 400
+
+
+def test_wms_rejects_a_malformed_bbox(client):
+    response = client.get(WMS_PATH, params={**WMS_QUERY, "bbox": "1,2,3"})
+    assert response.status_code == 400
+
+
+def test_wms_rejects_an_unknown_product(client):
+    response = client.get(
+        "/api/wms/not-a-product/Standard-Mercator", params=WMS_QUERY
+    )
+    assert response.status_code == 404
