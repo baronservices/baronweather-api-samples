@@ -252,7 +252,7 @@ both to `httpx` and pre-joining would invite the double-encoding trap in 3.6.
 
 ```python
 class TTLCache:
-    def __init__(self, ttl: int = 300, maxsize: int = 500)
+    def __init__(self, ttl: int = 60, maxsize: int = 500)
     def get(self, key: str) -> bytes | None
     def set(self, key: str, value: bytes) -> None
 ```
@@ -301,7 +301,15 @@ legend:{product}:{config}
 
 The instance time is part of the TMS key, so **a cached tile can never be stale** — a new
 instance produces new keys. The TTL therefore exists only to bound memory, not to bound
-staleness. 300 seconds, 500 entries; at roughly 50 KB per tile that is a ceiling of about 25 MB.
+staleness. 60 seconds, 500 entries; at roughly 50 KB per tile that is a ceiling of about 25 MB.
+
+Sixty seconds is short for a value that cannot go stale, and it is chosen deliberately: it is
+long enough to absorb the repeated tile requests a pan generates, short enough that the process
+gives memory back quickly, and it matches the reference app so the two can be compared. Raising
+it costs nothing but memory.
+
+This server-side cache is a separate thing from the `Cache-Control` header in 6.2, which governs
+the browser's own cache. They are tuned independently.
 
 ### 6.2 Proxy behaviour
 
@@ -420,8 +428,7 @@ panel. The map never silently shows nothing.
 - What the app does, in three sentences, and that it is the server-side counterpart of
   `../interactive-map`.
 - Setup: `cp env.example .env`, fill in the key and secret, `./run.sh`, open
-  `http://localhost:8000/`. Note that `../interactive-map` also documents port 8000, so the two
-  cannot run at once without passing `--port` to one of them.
+  `http://localhost:8000/`.
 - **Security note.** The secret stays in the server process and `.env` is outside the served
   tree, which is the whole point of this variant. But there is no TLS, no authentication, and
   no rate limiting: anyone who can reach the port can use your key's entitlement through the
