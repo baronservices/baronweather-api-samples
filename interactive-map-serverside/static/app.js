@@ -197,7 +197,7 @@ async function showProduct() {
   )
 
   setStatus(`Valid ${time}`)
-  await showLegend()
+  await showLegend(mine)
 }
 
 /**
@@ -346,7 +346,7 @@ const UNDEFINED_LABEL = 'Undefined'
 
 const NO_LEGEND_TEXT = 'No legend published for this product.'
 
-async function showLegend() {
+async function showLegend(mine) {
   // Cleared first, so a failure below cannot leave the previous product's
   // legend sitting beside an error message about a different one.
   clearLegend()
@@ -355,6 +355,10 @@ async function showLegend() {
   try {
     data = await getJson(`/api/legend/${state.product}/${state.config}`)
   } catch (error) {
+    // Same reason as above: a superseded request must not overwrite the
+    // newer product's legend with this one's "no legend" text.
+    if (mine !== generation) return
+
     legend.note.textContent = NO_LEGEND_TEXT
     // A 404 is the normal answer for some products, so it stays silent. Any
     // other failure is a real fault and must not hide behind that silence.
@@ -363,6 +367,11 @@ async function showLegend() {
     }
     return
   }
+
+  // A newer redraw finished while this legend was in flight. Drawing now
+  // would paint this product's scale over the one the map is actually
+  // showing, which is worse than showing nothing.
+  if (mine !== generation) return
 
   const entries = data?.palettes?.[0]?.entries
   if (!entries || entries.length === 0) {
