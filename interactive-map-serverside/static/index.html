@@ -2,9 +2,77 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Baron Weather — Server-Side Map</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 12px; left: 12px; width: 260px; z-index: 1;
+    background: rgba(18, 20, 24, 0.92); color: #e8e8e8;
+    border: 1px solid #333; border-radius: 6px; padding: 12px; font-size: 12px;
+  }
+  #panel h1 {
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    margin: 0 0 2px; color: #7fd4ff;
+  }
+  #panel .subtitle { color: #8a8f98; margin: 0 0 10px; font-size: 10px; }
+  #panel h2 {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #8a8f98; margin: 12px 0 6px; font-weight: normal;
+  }
+  #products label { display: block; padding: 2px 0; cursor: pointer; }
+  #protocol button, #refresh {
+    font: inherit; background: #23262c; color: #cfd3d8;
+    border: 1px solid #3a3e45; border-radius: 4px; padding: 4px 10px; cursor: pointer;
+  }
+  #protocol button.on { background: #7fd4ff; border-color: #7fd4ff; color: #10131a; }
+  #refresh { margin-top: 12px; width: 100%; }
+  #status { color: #8a8f98; margin: 10px 0 0; min-height: 2.4em; word-break: break-word; }
+  #status.error { color: #ff9b9b; }
+  #legend-bar {
+    height: 12px; border: 1px solid #3a3e45; border-radius: 2px;
+    margin-top: 8px; display: none;
+  }
+  #legend-labels { display: flex; justify-content: space-between; color: #8a8f98; margin-top: 4px; }
+  #legend-note { color: #8a8f98; margin: 8px 0 0; }
+</style>
 </head>
 <body>
-  <p>Server is running. The map arrives in Task 9.</p>
+  <div id="map"></div>
+
+  <div id="panel">
+    <h1>Baron Weather</h1>
+    <p class="subtitle">Server-side signing</p>
+
+    <h2>Product</h2>
+    <!-- Built by app.js from /api/config, so the product list lives on the
+         server and exists in exactly one place. -->
+    <div id="products"></div>
+
+    <h2>Delivery</h2>
+    <div id="protocol">
+      <button data-protocol="tms" class="on">TMS</button>
+      <button data-protocol="wms">WMS</button>
+    </div>
+
+    <button id="refresh">Refresh</button>
+
+    <p id="status">Starting…</p>
+
+    <!-- Filled by Task 10. Empty until then, which shows nothing. -->
+    <div id="legend">
+      <div id="legend-bar"></div>
+      <div id="legend-labels"></div>
+      <p id="legend-note"></p>
+    </div>
+  </div>
+
+  <!-- MapLibre 5.24.0 is the newest release with a classic build usable from
+       a plain script tag. Version 6.x is ES modules only. -->
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
