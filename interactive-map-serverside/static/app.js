@@ -186,8 +186,28 @@ function createMap(center, zoom) {
     // own corners: it scales and blurs on zoom, and leaves the newly revealed
     // edge blank on pan, rather than stretching to fill the new view.
     source.updateImage({ url: wmsUrl(view), coordinates: view.coordinates })
+
+    // Refresh the coverage note here too, not only in showProduct().
+    //
+    // A user meets the antimeridian by PANNING into it, which fires this
+    // handler and never touches the status line. Computing the note only at
+    // redraw time left it silent in the one case that actually happens: the
+    // note appeared only if you switched product while already straddling.
+    //
+    // Guarded on the panel not currently showing an error, so a move cannot
+    // overwrite a real failure with a cheerful valid-time line.
+    if (state.time && !panel.status.classList.contains('error')) {
+      setStatus(`Valid ${state.time}${view.crossesAntimeridian ? ANTIMERIDIAN_NOTE : ''}`)
+    }
   })
 }
+
+// Shown whenever a WMS view is clamped at the antimeridian. Defined once
+// because two places have to be able to raise it: a redraw that happens to
+// start while straddling, and — far more commonly — a pan that crosses the
+// seam without redrawing anything.
+const ANTIMERIDIAN_NOTE =
+  ' — the view crosses the antimeridian; one WMS image cannot cover both sides, so part of the view has no overlay. TMS mode shows it.'
 
 // --- The single redraw path -------------------------------------------------
 
@@ -234,8 +254,7 @@ async function showProduct(mine) {
     // the bbox and the placed image honestly matched to each other, but that
     // also means the sliver of the view past +/-180 is quietly uncovered.
     // Say so, rather than leave a gap with no weather and no explanation.
-    antimeridianNote =
-      ' — the view crosses the antimeridian; one WMS image cannot cover both sides, so part of the view has no overlay. TMS mode shows it.'
+    antimeridianNote = ANTIMERIDIAN_NOTE
   }
 
   map.addLayer(
