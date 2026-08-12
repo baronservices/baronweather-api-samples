@@ -275,3 +275,70 @@ def test_wms_rejects_an_unknown_product(client):
         "/api/wms/not-a-product/Standard-Mercator", params=WMS_QUERY
     )
     assert response.status_code == 404
+
+
+# --- /api/legend -------------------------------------------------------------
+
+LEGEND_PATH = "/api/legend/C39-0x0302-0/Standard-Mercator"
+LEGEND_BODY = {"palettes": [{"entries": [{"color": "#a4ffa47f", "value": "5 dBZ"}]}]}
+
+
+def test_legend_is_proxied(client):
+    def handler(request):
+        assert "static.velocityweather.com" in str(request.url)
+        # The legend CDN is public. Signing it would be harmless but wrong.
+        assert "sig" not in request.url.params
+        return httpx.Response(200, json=LEGEND_BODY)
+
+    client.app.state.client = mock_upstream(handler)
+    response = client.get(LEGEND_PATH)
+    assert response.status_code == 200
+    assert response.json() == LEGEND_BODY
+
+
+def test_a_403_from_the_cdn_becomes_a_plain_404(client):
+    # The bucket denies ListBucket, so a missing legend answers 403 rather
+    # than 404. From outside, absent and forbidden are indistinguishable —
+    # and neither yields a legend, so both mean the same thing to a client.
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(403, text="AccessDenied")
+    )
+    response = client.get(LEGEND_PATH)
+    assert response.status_code == 404
+    assert "no legend published" in response.json()["detail"].lower()
+
+
+def test_a_404_from_the_cdn_becomes_a_plain_404(client):
+    client.app.state.client = mock_upstream(lambda request: httpx.Response(404))
+    assert client.get(LEGEND_PATH).status_code == 404
+
+
+def test_a_server_error_from_the_cdn_is_not_disguised_as_absence(client):
+    # A 500 is a fault. Reporting it as "no legend published" would hide a
+    # real outage behind the silence a genuinely absent legend earns.
+    client.app.state.client = mock_upstream(lambda request: httpx.Response(500))
+    assert client.get(LEGEND_PATH).status_code == 502
+
+
+def test_a_second_legend_request_is_served_from_the_cache(client):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, json=LEGEND_BODY)
+
+    client.app.state.client = mock_upstream(handler)
+    client.get(LEGEND_PATH)
+    client.get(LEGEND_PATH)
+    assert len(calls) == 1
+
+
+def test_legend_works_without_credentials(client, monkeypatch):
+    # The legend CDN needs no signature, so an unconfigured server can still
+    # answer this one. It must not 503 like the signed routes do.
+    monkeypatch.setattr(baron, "_key", None)
+    monkeypatch.setattr(baron, "_secret", None)
+    client.app.state.client = mock_upstream(
+        lambda request: httpx.Response(200, json=LEGEND_BODY)
+    )
+    assert client.get(LEGEND_PATH).status_code == 200
