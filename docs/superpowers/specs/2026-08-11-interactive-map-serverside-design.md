@@ -200,11 +200,18 @@ interactive-map-serverside/
 ├── static/
 │   ├── index.html    panel markup, styles, MapLibre tags
 │   └── app.js        map, panel, legend, WMS bbox maths
+├── tests/
+│   ├── test_cache.py     expiry and eviction
+│   ├── test_baron.py     credentials, signing, URL building
+│   └── test_api.py       route status mapping, via httpx.MockTransport
 ├── env.example       credential template, tracked
 ├── requirements.txt  fastapi, uvicorn, httpx, python-dotenv
 ├── run.sh            venv, install, uvicorn
 └── README.md
 ```
+
+`pytest` is a development dependency, listed separately in `requirements.txt` under a comment so
+it is obvious the app itself does not need it.
 
 No line budget applies. Thorough comments are a requirement. What matters is that each file
 keeps one responsibility.
@@ -437,11 +444,39 @@ panel. The map never silently shows nothing.
 - A **"what changed from the client-side twin"** section, built from section 2. This is the
   most useful part of the document for a reader who has seen the other app.
 - The API notes from section 3.
-- The verification checklist from section 11.
+- How to run the tests, and the verification checklist, from section 11.
 
-## 11. Verification checklist
+## 11. Verification
 
-Manual. No test harness — every check below is observable in a browser or with `curl`.
+Two layers, because the app has two kinds of risk.
+
+### 11.1 Automated — `pytest`
+
+The server-side logic is unit tested. This is a departure from `interactive-map/`, which has no
+tests, and it is justified by one thing: **the failures that matter here are silent.** A
+signature encoded twice does not raise; it returns a plausible `403`. A cache that never expires
+does not raise; it serves yesterday's imagery. Neither is visible in a browser.
+
+Scope, deliberately narrow:
+
+| Module | Tested |
+|---|---|
+| `cache.py` | Expiry, eviction on overflow, re-set moves an entry to newest |
+| `baron.py` | Both credential name pairs, missing credentials, signature shape, and that `sig` is passed raw so `httpx` encodes `=` once — see 3.6 |
+| `main.py` | Each route's status mapping, cache hit avoiding an upstream call, and that `/.env` is not served |
+
+Upstream calls are faked with `httpx.MockTransport`, so **no test touches the network and no
+test needs credentials.** The shared client on `app.state.client` is replaced inside a
+`TestClient` context.
+
+Not tested: MapLibre rendering, and anything requiring a live key. Those are 11.2.
+
+Run with `pytest` from the app folder. `pytest` is a development dependency only; the app does
+not import it.
+
+### 11.2 Manual — browser and `curl`
+
+Every check below is observable in a browser or with `curl`.
 
 1. Copy `env.example` to `.env` and fill in a valid key and secret.
 2. Run `./run.sh`. Open `http://localhost:8000/`.
