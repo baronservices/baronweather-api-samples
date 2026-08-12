@@ -4,6 +4,12 @@
 # File-safety backups
 backup/
 
+# Scratch space for plan execution. Ledgers, briefs, and review packages.
+.superpowers/
+
+# Python virtual environments
+venv/
+
 # macOS
 .DS_Store
 
