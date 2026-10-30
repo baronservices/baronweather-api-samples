@@ -2,7 +2,7 @@
 """
 qa_bgg.py -- on-demand meteorological QA for BGG global GeoTIFF products.
 
-Runs the automatable subset of BGG_QA_TEST_PLAN.md against a folder of BGG
+Runs automated QA checks against a folder of BGG
 GeoTIFFs (the products in bgg-global-endpoints.md). Per product it checks
 structure, time-metadata integrity, legend decode, physical-range bounds,
 a georeference anchor for temperature-like fields, spatial non-degeneracy,
@@ -53,8 +53,8 @@ NX, NY = 3601, 1801
 MPH_PER_MPS = 2.2369362920544
 
 # ----- condition-aware validation constants ----------------------------------
-# Calibrated against the clean 2026-07-22T12Z reference run (see
-# QA_BGG_REVIEW_FINDINGS.md): plain-temp global mean spread 1.27 C / max step
+# Calibrated against the clean 2026-07-22T12Z reference run, which measured:
+# plain-temp global mean spread 1.27 C / max step
 # 0.20 C; feelslike clamp usage peaks at 2.0% (polar-winter cold clamp); July
 # zonal N-S day-temp-max asymmetry +14.1 C at 45 deg; diurnal peaks 12h-20h.
 NH_SUMMER_MONTHS = {5, 6, 7, 8, 9}

@@ -21,7 +21,8 @@
 #
 # Notes: ~10 GB total, fetched sequentially (plain/hourly products are 252-band, up to
 # ~380 MB). 10 of the 60 legends 404 at the CDN (mps winds, windvector, day/night wxcode,
-# plain precip-probability) — expected; see BGG_QA_TEST_PLAN.md §0.1#4 for their decode.
+# plain precip-probability) — expected; qa_bgg.py decodes them through a sibling legend
+# (see legend_product()), and windvector has no palette (Int16 / 100 = m/s).
 # Exits 0 even if some fetches fail, printing a per-product FAILED line and a final count.
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
