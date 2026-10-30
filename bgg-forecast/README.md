@@ -31,8 +31,9 @@ data (see [Validation](#validation)).
 
 ## Requirements
 
-- Python 3.9+ with: `GDAL` (osgeo bindings), `timezonefinder`, `requests`, `tenacity`
-  (`requests`/`tenacity` are only needed by `geotiff_fetch.py`; `GDAL`/`timezonefinder` only by `geotiff_value_at.py`)
+- Python 3.9+ with: `GDAL` (osgeo bindings), `numpy`, `timezonefinder`, `requests`, `tenacity`
+  (`requests`/`tenacity` are only needed by `geotiff_fetch.py`; `GDAL`/`timezonefinder` only by `geotiff_value_at.py`;
+  `numpy` only by `qa_bgg.py` and `qa_selftest.py`)
 - API credentials in a `.env` file (fetching only — legend download and value decoding hit a public CDN)
 
 ### Credentials
