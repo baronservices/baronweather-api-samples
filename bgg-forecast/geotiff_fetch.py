@@ -96,14 +96,15 @@ def setup_logging(log_file=None, log_level=logging.INFO, quiet=False):
     Configure unified logging with console and optional file output.
 
     Sets up a dual-channel logging system with both console and file handlers.
-    The console handler respects the specified log level, while the file handler
-    always logs at DEBUG level for comprehensive troubleshooting. Uses rotating
-    file handler to prevent disk space issues.
+    Both handlers use the same level. The file handler is deliberately not
+    pinned to DEBUG: at DEBUG this script and urllib3 record full signed API
+    URLs, so a permanent DEBUG log file becomes a plain-text credential store.
+    Uses rotating file handler to prevent disk space issues.
 
     Args:
         log_file (str, optional): Absolute path to log file. If provided, creates
             parent directories automatically. Defaults to None (no file logging).
-        log_level (int, optional): Minimum logging level for console output.
+        log_level (int, optional): Minimum logging level for console and file.
             Use logging.DEBUG, logging.INFO, logging.WARNING, or logging.ERROR.
             Defaults to logging.INFO.
         quiet (bool, optional): If True, suppresses all console output (file
@@ -112,7 +113,7 @@ def setup_logging(log_file=None, log_level=logging.INFO, quiet=False):
 
     Side Effects:
         - Clears all existing handlers from root logger
-        - Sets root logger level to DEBUG (most permissive)
+        - Sets root logger level to log_level
         - Creates log file parent directories if they don't exist
         - Configures rotating file handler (10MB per file, 10 backups)
 
@@ -127,7 +128,7 @@ def setup_logging(log_file=None, log_level=logging.INFO, quiet=False):
         # No file logging, no console output
     """
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(log_level)
     root_logger.handlers.clear()
 
     formatter = logging.Formatter(
@@ -149,7 +150,7 @@ def setup_logging(log_file=None, log_level=logging.INFO, quiet=False):
             maxBytes=LOG_FILE_MAX_BYTES,
             backupCount=LOG_BACKUP_COUNT
         )
-        file_handler.setLevel(logging.DEBUG)
+        file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
 
@@ -848,7 +849,7 @@ Exit Codes:
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         default='INFO',
-        help='Console logging level (default: INFO)'
+        help='Console and file logging level (default: INFO)'
     )
     parser.add_argument(
         '--quiet',
