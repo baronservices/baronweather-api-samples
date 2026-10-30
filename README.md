@@ -72,8 +72,3 @@ credentials.
 
 `current-conditions` and `interactive-map` have no automated tests. The `interactive-map`
 README gives a manual verification list.
-
-## Other files
-
-`docs/superpowers/` holds the design specifications and the implementation plans for the two
-map samples.
