@@ -85,3 +85,11 @@ README tells you how to make them. The other tests run without the captures.
 
 `current-conditions` and `interactive-map` have no automated tests. The `interactive-map`
 README gives a manual verification list.
+
+## License
+
+The samples use the MIT License. See [`LICENSE`](LICENSE).
+
+`sigwx-client` includes one third-party file with a different license:
+`public/vendor/mapbox-gl-rtl-text-0.2.3.min.js`, from Mapbox. It uses a BSD 2-clause license and
+the ICU license. The license text is in the same folder.
