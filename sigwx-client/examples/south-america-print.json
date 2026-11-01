@@ -1,0 +1,14 @@
+{
+  "output": "south-america-print.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": -20, "lon": -60 },
+  "zoom": 3.6,
+  "basemap": "light",
+  "legend": false,
+  "key": false,
+  "width": 1200,
+  "height": 1500,
+  "scale": 2
+}

@@ -1,0 +1,179 @@
+{
+  "output": "country-china.png",
+  "product": "sigwx_alt",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 35, "lon": 105 },
+  "zoom": 4,
+  "basemap": "light",
+  "density": 1.25,
+  "layers": {
+    "all": true,
+    "jets": true,
+    "cb": true,
+    "turbulence": true,
+    "icing": true,
+    "tropopause": true,
+    "volcanoes": true,
+    "cyclones": true,
+    "grid": true
+  },
+  "legend": true,
+  "key": true,
+  "width": 1500,
+  "height": 1000,
+  "scale": 1,
+  "style": {
+    "fonts": {
+      "mapRegular": "Noto Sans Regular",
+      "mapBold": "Noto Sans Bold",
+      "labels": "Barlow Semi Condensed",
+      "text": "Barlow"
+    },
+    "symbols": {
+      "color": "#0b1f3a",
+      "halo": "#ffffff",
+      "haloWidth": 1.5,
+      "stroke": 0.085
+    },
+    "jets": {
+      "line": { "color": "#0b1f3a", "width": 4 },
+      "casing": { "color": "#ffffff", "width": 7 },
+      "label": {
+        "size": 12.5,
+        "color": "#0b1f3a",
+        "halo": "#ffffff",
+        "haloWidth": 2,
+        "speedWeight": "bold",
+        "weight": "regular"
+      },
+      "barbs": { "scale": 1, "width": 2 },
+      "arrowSize": 24,
+      "changeBarSize": 24
+    },
+    "turbulence": {
+      "moderate": { "fill": "#475569", "opacity": 0.2 },
+      "severe": { "fill": "#1e293b", "opacity": 0.36 },
+      "outline": {
+        "color": "#0f172a",
+        "width": 2.5,
+        "dash": [3, 2]
+      },
+      "casing": { "color": "#ffffff", "width": 5.5 }
+    },
+    "icing": {
+      "moderate": { "fill": "#7c3aed", "opacity": 0.18 },
+      "severe": { "fill": "#4c1d95", "opacity": 0.36 },
+      "line": {
+        "color": "#6d28d9",
+        "width": 2,
+        "fallbackDash": [2, 1.5]
+      },
+      "ticks": {
+        "width": 1.75,
+        "length": 7,
+        "spacing": 16
+      }
+    },
+    "hatch": {
+      "opacity": 0.6,
+      "size": 8,
+      "color": "#000",
+      "width": 1.5,
+      "edge": "#fff",
+      "edgeWidth": 3.5
+    },
+    "cb": {
+      "color": "#e11d48",
+      "width": 2.25,
+      "scallop": 13
+    },
+    "tropopause": {
+      "color": "#0f766e",
+      "border": "#0f766e",
+      "fill": "#ffffff",
+      "borderWidth": 1.5,
+      "size": 11,
+      "weight": "bold"
+    },
+    "volcanoes": { "size": 24 },
+    "cyclones": { "size": 24 },
+    "grid": {
+      "color": "#64748b",
+      "width": 1,
+      "dash": [1, 4],
+      "spacing": 5,
+      "labelEvery": 10,
+      "allLabelsFromZoom": 6,
+      "label": {
+        "size": 11,
+        "color": "#0f172a",
+        "halo": "#fff",
+        "haloWidth": 1.5,
+        "weight": "regular"
+      }
+    },
+    "callouts": {
+      "size": 11,
+      "color": "#0b1f3a",
+      "fill": "#fff",
+      "border": "#0b1f3a",
+      "borderWidth": 1.5,
+      "weight": "regular",
+      "headerWeight": "bold",
+      "paddingX": 5,
+      "paddingY": 3,
+      "symbolSize": 18,
+      "symbolGap": 4,
+      "leader": {
+        "color": "#0b1f3a",
+        "width": 1.5,
+        "casing": "#fff",
+        "casingWidth": 4,
+        "arrowLength": 9,
+        "arrowWidth": 8
+      },
+      "priority": ["severeTurbulence", "severeIcing", "volcanoes", "cyclones", "cb", "moderateTurbulence", "moderateIcing"],
+      "repeats": {
+        "max": 3,
+        "spacing": 400,
+        "minClearance": 24
+      },
+      "edgePieces": true
+    },
+    "legend": {
+      "size": 10.5,
+      "lineHeight": 1.4,
+      "paddingX": 8,
+      "paddingY": 5,
+      "color": "#0b1f3a",
+      "background": "#fff",
+      "border": "#0b1f3a",
+      "borderWidth": 1.5
+    },
+    "key": {
+      "size": 12,
+      "headingSize": 11,
+      "chipSize": 10.5,
+      "color": "#0b1f3a",
+      "background": "#fff",
+      "headingColor": "#0f766e",
+      "noteColor": "#334155",
+      "ruleColor": "#e2e8f0"
+    },
+    "panel": {
+      "background": "#0b1f3a",
+      "columnWidth": 260,
+      "columnGap": 10,
+      "padding": 10
+    },
+    "attribution": { "size": 10 },
+    "basemap": {
+      "roads": false,
+      "roadLabels": false,
+      "buildings": false,
+      "pointsOfInterest": false,
+      "stateBorders": true
+    }
+  }
+}

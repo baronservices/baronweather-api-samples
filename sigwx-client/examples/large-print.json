@@ -1,0 +1,25 @@
+{
+  "output": "large-print.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 40, "lon": -40 },
+  "zoom": 3.5,
+  "basemap": "light",
+  "legend": true,
+  "key": true,
+  "width": 1600,
+  "height": 1000,
+  "style": {
+    "jets": { "line": { "width": 5 }, "label": { "size": 16 } },
+    "turbulence": { "outline": { "width": 3 } },
+    "cb": { "width": 3 },
+    "tropopause": { "size": 14 },
+    "grid": { "label": { "size": 13 } },
+    "callouts": { "size": 14, "symbolSize": 24, "borderWidth": 2 },
+    "legend": { "size": 13 },
+    "key": { "size": 14, "headingSize": 13, "chipSize": 12 },
+    "panel": { "background": "#ffffff", "columnWidth": 340 },
+    "attribution": { "size": 12 }
+  }
+}

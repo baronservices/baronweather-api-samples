@@ -1,0 +1,12 @@
+{
+  "output": "pacific-jets-only.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": -25, "lon": -175 },
+  "zoom": 3.5,
+  "basemap": "dark",
+  "layers": { "all": false, "jets": true },
+  "legend": true,
+  "key": true
+}

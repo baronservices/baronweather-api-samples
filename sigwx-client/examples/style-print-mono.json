@@ -1,0 +1,29 @@
+{
+  "output": "style-print-mono.png",
+  "product": "sigwx_alt",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 48, "lon": 10 },
+  "zoom": 3.6,
+  "basemap": "light",
+  "legend": true,
+  "key": true,
+  "width": 1400,
+  "height": 1000,
+  "scale": 2,
+  "style": {
+    "jets": { "line": { "width": 4.5 } },
+    "turbulence": {
+      "moderate": { "fill": "#000", "opacity": 0.07 },
+      "severe": { "fill": "#000", "opacity": 0.18 },
+      "outline": { "width": 2.5, "dash": [3, 1.5] }
+    },
+    "icing": { "moderate": { "fill": "#000", "opacity": 0.07 }, "severe": { "fill": "#000", "opacity": 0.18 }, "line": { "color": "#000" } },
+    "hatch": { "opacity": 0.8, "size": 6, "width": 1.2, "edgeWidth": 2 },
+    "cb": { "color": "#000", "width": 2.5 },
+    "tropopause": { "color": "#000", "border": "#000" },
+    "grid": { "color": "#777", "dash": [1, 3], "label": { "color": "#000" } },
+    "key": { "color": "#000", "headingColor": "#000", "noteColor": "#000", "ruleColor": "#ccc" },
+    "panel": { "background": "#ffffff" }
+  }
+}

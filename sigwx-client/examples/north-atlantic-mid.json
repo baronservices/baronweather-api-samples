@@ -1,0 +1,11 @@
+{
+  "output": "north-atlantic-mid.png",
+  "product": "sigwx",
+  "level": "mid",
+  "valid": "current",
+  "center": { "lat": 45, "lon": -35 },
+  "zoom": 3.4,
+  "basemap": "satellite",
+  "legend": true,
+  "key": true
+}

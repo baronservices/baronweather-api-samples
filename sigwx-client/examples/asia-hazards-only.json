@@ -1,0 +1,12 @@
+{
+  "output": "asia-hazards-only.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 12, "lon": 115 },
+  "zoom": 3.5,
+  "basemap": "light",
+  "layers": { "jets": false, "tropopause": false },
+  "legend": true,
+  "key": true
+}

@@ -1,0 +1,240 @@
+/* SIGWX app: a dark control strip with an amber accent for the active selection, and a
+   side panel outside the map, so no panel covers a map label. */
+:root {
+  --strip: #0b1220;
+  --strip-2: #121b2e;
+  --line: #24314c;
+  --ink: #e7ecf6;
+  --muted: #8d99b0;
+  --amber: #f5a524;
+  --red: #b91c1c;
+  --side-w: 300px;
+  /* The chart style (the job's style object; app.js sets these from it, to the same
+     defaults): legend, KEY, static panel columns, attribution. */
+  --labels-font: 'Noto Sans Mono';
+  --text-font: 'Noto Sans';
+  --legend-size: 10.5px;
+  --legend-line: 1.4;
+  --legend-pad-x: 8px;
+  --legend-pad-y: 5px;
+  --legend-color: #000;
+  --legend-bg: #fff;
+  --legend-border: #000;
+  --legend-border-w: 1.5px;
+  --key-size: 12px;
+  --key-heading-size: 11px;
+  --key-chip-size: 10.5px;
+  --key-color: #0b1220;
+  --key-bg: #fff;
+  --key-heading-color: #4b5563;
+  --key-note-color: #374151;
+  --key-rule-color: #eef0f4;
+  --key-swatch-w: 84px;
+  --attrib-size: 10px;
+  --col-w: 280px;
+  --col-gap: 10px;
+  --side-pad: 10px;
+  font-family: 'Noto Sans', system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--strip);
+  color: var(--ink);
+  font-size: 13px;
+}
+body.is-loading { cursor: progress; }
+
+/* ---- control strip ---- */
+.strip {
+  display: grid;
+  gap: 6px;
+  padding: 7px 12px;
+  background: linear-gradient(180deg, #0e172b 0%, var(--strip) 100%);
+  border-bottom: 1px solid var(--line);
+}
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.brand { font-weight: 700; letter-spacing: 0.14em; font-size: 13px; padding-right: 4px; }
+.brand .mark { color: var(--amber); }
+.group { display: flex; align-items: center; gap: 8px; }
+.glabel { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button {
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--strip-2);
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 4px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms, color 120ms;
+}
+.seg button:last-child { border-right: 0; }
+.seg button:hover { background: #1b2742; }
+.seg button[aria-pressed="true"] { background: var(--amber); color: #15100a; }
+.seg button.pending { box-shadow: inset 0 0 0 2px var(--amber); animation: pulse 1s ease-in-out infinite; }
+.seg button:focus-visible, .hidden-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+#valid button { font-family: 'Noto Sans Mono', monospace; font-weight: 700; }
+.density input { width: 120px; accent-color: var(--amber); }
+.density .end { color: var(--muted); font-size: 11px; }
+.density output { font-family: 'Noto Sans Mono', monospace; min-width: 3.2em; }
+.hidden-btn {
+  margin-left: auto;
+  /* Wide enough for the longest text, so a changing count never reflows the strip
+     (which would resize the map and re-place the boxes). */
+  min-width: 22.5em;
+  white-space: nowrap;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--strip-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.hidden-btn.has-hidden { color: #15100a; background: var(--amber); border-color: var(--amber); }
+.loading-note { margin-left: auto; color: var(--amber); font-size: 12px; font-weight: 600; }
+
+/* ---- banners (in the page flow, above the map, never over it) ---- */
+.banner { padding: 6px 12px; font-weight: 600; line-height: 1.35; }
+.banner.error { background: var(--red); color: #fff; }
+.banner.stale { background: var(--amber); color: #1a1200; }
+.banner.notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #dbe6ff; color: #0b1a3a; }
+.banner.notice button { font: inherit; font-size: 16px; line-height: 1; border: 0; background: none; color: inherit; cursor: pointer; }
+
+/* ---- map and side panel ---- */
+main { display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); min-height: 0; }
+#map { position: relative; min-width: 0; min-height: 0; }
+.sigwx-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+  border-left: 1px solid var(--line);
+  background:
+    radial-gradient(120% 50% at 100% 0%, rgba(245, 165, 36, 0.08), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 24px),
+    #0a1020;
+}
+.card h2 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+
+/* The WAFC legend block: white, black rules, monospaced capitals; always visible. */
+.legend {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-top: 10px;
+  background: var(--legend-bg);
+  color: var(--legend-color);
+  border: var(--legend-border-w) solid var(--legend-border);
+  font-family: var(--labels-font), monospace;
+  font-size: var(--legend-size);
+  line-height: var(--legend-line);
+  text-transform: uppercase;
+  box-shadow: 0 -10px 0 #0a1020;
+}
+.legend .rule { padding: var(--legend-pad-y) var(--legend-pad-x); }
+.legend .rule + .rule { border-top: var(--legend-border-w) solid var(--legend-border); }
+
+.layers { padding: 8px 10px; background: rgba(18, 27, 46, 0.9); border: 1px solid var(--line); border-radius: 6px; }
+.toggle { display: flex; align-items: center; gap: 8px; padding: 2px 0; cursor: pointer; }
+.toggle input { accent-color: var(--amber); margin: 0; }
+
+.hidden-list { padding: 8px 10px; background: rgba(18, 27, 46, 0.95); border: 1px solid var(--amber); border-radius: 6px; }
+.hidden-list .hint { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+.hidden-list ol { margin: 0; padding-left: 20px; }
+.hidden-list li { margin: 3px 0; }
+.hidden-list button { font: inherit; font-size: 12px; text-align: left; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; }
+.hidden-list button:hover { color: var(--amber); }
+.hidden-list strong { font-family: 'Noto Sans Mono', monospace; }
+
+/* The KEY: white like the chart, so the black symbols read as they do on the map. */
+.key { background: var(--key-bg); color: var(--key-color); font-family: var(--text-font), system-ui, sans-serif; border-radius: 6px; padding: 0 10px 8px; }
+.key summary {
+  padding: 8px 0;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.key h3 { margin: 10px 0 4px; font-size: var(--key-heading-size); letter-spacing: 0.1em; text-transform: uppercase; color: var(--key-heading-color); }
+.krow { display: grid; grid-template-columns: var(--key-swatch-w) 1fr; gap: 8px; align-items: center; padding: 3px 0; border-top: 1px solid var(--key-rule-color); }
+.ksw { display: flex; justify-content: center; min-width: 0; }
+.ktext { font-size: var(--key-size); line-height: 1.35; }
+.chip {
+  font-family: var(--labels-font), monospace;
+  font-size: var(--key-chip-size);
+  font-weight: 700;
+  white-space: pre-line;
+  max-width: var(--key-swatch-w);
+  text-align: center;
+  padding: 2px 4px;
+  border: 1.5px solid #000;
+  background: #fff;
+}
+.knote { margin: 8px 0 0; font-size: var(--key-size); font-style: italic; color: var(--key-note-color); }
+
+.attribution { margin-top: auto; font-size: 11px; }
+.attribution .maplibregl-ctrl-attrib { margin: 0; background: rgba(255, 255, 255, 0.9); color: #111; }
+
+/* Popups sit on MapLibre's white card; the body's light ink would vanish on it. */
+.maplibregl-popup-content { color: #0b1220; font-family: 'Noto Sans', system-ui, sans-serif; }
+.popup { font-size: 12px; line-height: 1.4; }
+.popup div + div { margin-top: 4px; padding-top: 4px; border-top: 1px solid #e5e7eb; }
+
+/* One staggered fade-in on load. */
+.reveal { animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+@keyframes pulse { 50% { box-shadow: inset 0 0 0 2px transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .reveal, .seg button.pending { animation: none; }
+}
+
+/* ---- static mode (?static=1): the CLI's chart image. #sheet, the element captured, is the
+   map at exactly w×h with the attribution in a strip below it (so it covers nothing on the
+   map), plus, to the right, the legend and the KEY in columns as tall as the map and its
+   strip (app.js sets the column count). No controls, animations or transitions. ---- */
+body.static { display: block; height: auto; overflow: visible; }
+body.static *, body.static *::before, body.static *::after { animation: none !important; transition: none !important; }
+body.static .strip, body.static .banners, body.static .layers, body.static .hidden-list,
+body.static .hidden-btn { display: none !important; }
+#sheet {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto 1fr;   /* a panel column taller than the map grows row 2, below the strip */
+  align-items: start;
+  width: max-content;
+  background: var(--strip);
+}
+body.static #map { grid-area: 1 / 1; width: var(--map-w); height: var(--map-h); }
+body.static #attribution { grid-area: 2 / 1; display: flex; justify-content: flex-end; width: var(--map-w); margin: 0; }
+body.static .side {
+  grid-area: 1 / 2 / 3 / 3;
+  display: block;
+  height: max(var(--map-h), 360px);
+  min-height: 100%;
+  overflow: visible;
+  padding: var(--side-pad);
+  column-gap: var(--col-gap);
+  column-fill: auto;
+}
+body.static .legend { position: static; margin: 0 0 10px; box-shadow: none; break-inside: avoid; }
+body.static .key { box-decoration-break: clone; }
+body.static .key summary { cursor: default; list-style: none; break-after: avoid; }   /* never alone at a column's foot */
+body.static .key summary::-webkit-details-marker { display: none; }
+body.static .krow, body.static .knote { break-inside: avoid; }
+body.static .key h3 { break-after: avoid; }
+body.static .maplibregl-ctrl-attrib { font-size: var(--attrib-size); line-height: calc(var(--attrib-size) * 1.4); }

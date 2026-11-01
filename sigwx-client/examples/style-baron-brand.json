@@ -1,0 +1,30 @@
+{
+  "output": "style-baron-brand.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 35, "lon": -60 },
+  "zoom": 3.2,
+  "basemap": "light",
+  "legend": true,
+  "key": true,
+  "style": {
+    "fonts": { "labels": "Roboto Mono", "text": "Roboto" },
+    "symbols": { "color": "#231f20" },
+    "jets": { "line": { "color": "#002f7a" }, "label": { "color": "#002f7a" } },
+    "turbulence": {
+      "moderate": { "fill": "#0072bc", "opacity": 0.15 },
+      "severe": { "fill": "#002f7a", "opacity": 0.3 },
+      "outline": { "color": "#002f7a" }
+    },
+    "icing": { "moderate": { "fill": "#6fcbdc" }, "severe": { "fill": "#0a8c74" }, "line": { "color": "#0a8c74" } },
+    "hatch": { "color": "#002f7a" },
+    "cb": { "color": "#da1a32" },
+    "tropopause": { "color": "#0072bc", "border": "#0072bc" },
+    "grid": { "color": "#6fcbdc", "label": { "color": "#002f7a" } },
+    "callouts": { "color": "#231f20", "border": "#002f7a", "leader": { "color": "#002f7a" } },
+    "legend": { "color": "#231f20", "border": "#002f7a" },
+    "key": { "color": "#231f20", "headingColor": "#0072bc", "noteColor": "#231f20", "ruleColor": "#eaf0f4" },
+    "panel": { "background": "#eaf0f4" }
+  }
+}

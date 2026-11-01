@@ -1,0 +1,31 @@
+{
+  "output": "style-minimal.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": -25, "lon": -160 },
+  "zoom": 3.3,
+  "basemap": "light",
+  "density": 0.75,
+  "legend": false,
+  "key": false,
+  "style": {
+    "jets": {
+      "line": { "width": 2.5, "color": "#1f2937" },
+      "casing": { "width": 0 },
+      "label": { "size": 11, "color": "#1f2937", "haloWidth": 1 },
+      "barbs": { "scale": 0.8, "width": 1.5 },
+      "arrowSize": 18,
+      "changeBarSize": 18
+    },
+    "turbulence": { "outline": { "width": 1.5, "color": "#4b5563" }, "casing": { "width": 0 } },
+    "cb": { "width": 1.5, "scallop": 10 },
+    "tropopause": { "size": 9, "weight": "regular", "borderWidth": 1 },
+    "grid": { "spacing": 15, "labelEvery": 45, "dash": [1, 0], "color": "#d1d5db", "label": { "size": 9, "color": "#6b7280" } },
+    "callouts": {
+      "size": 9, "paddingX": 3, "paddingY": 2, "symbolSize": 14, "symbolGap": 3, "borderWidth": 1,
+      "leader": { "width": 1, "casingWidth": 2.5, "arrowLength": 6, "arrowWidth": 6 }
+    },
+    "panel": { "background": "#ffffff" }
+  }
+}

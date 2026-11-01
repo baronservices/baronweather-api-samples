@@ -1,0 +1,20 @@
+{
+  "output": "style-us-detail.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 39.5, "lon": -96 },
+  "zoom": 5.2,
+  "basemap": "light",
+  "density": 1.25,
+  "legend": true,
+  "key": false,
+  "style": {
+    "basemap": { "roads": true, "roadLabels": true, "stateBorders": true },
+    "grid": { "spacing": 5, "labelEvery": 10, "allLabelsFromZoom": 5 },
+    "callouts": {
+      "priority": ["cb", "severeTurbulence", "severeIcing", "volcanoes", "cyclones", "moderateTurbulence", "moderateIcing"],
+      "repeats": { "max": 1 }
+    }
+  }
+}

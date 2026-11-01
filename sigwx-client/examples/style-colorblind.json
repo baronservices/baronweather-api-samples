@@ -1,0 +1,25 @@
+{
+  "output": "style-colorblind.png",
+  "product": "sigwx",
+  "level": "mid",
+  "valid": "current",
+  "center": { "lat": 12, "lon": 115 },
+  "zoom": 3.5,
+  "basemap": "light",
+  "legend": true,
+  "key": true,
+  "style": {
+    "turbulence": {
+      "moderate": { "fill": "#e69f00", "opacity": 0.25 },
+      "severe": { "fill": "#d55e00", "opacity": 0.35 }
+    },
+    "icing": {
+      "moderate": { "fill": "#56b4e9", "opacity": 0.25 },
+      "severe": { "fill": "#0072b2", "opacity": 0.35 },
+      "line": { "color": "#0072b2" }
+    },
+    "cb": { "color": "#cc79a7", "width": 2.5 },
+    "tropopause": { "color": "#009e73", "border": "#009e73" },
+    "grid": { "color": "#999999" }
+  }
+}

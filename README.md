@@ -15,8 +15,11 @@ tests. Read that README before you run the sample.
 | [`geotiff_fetch`](geotiff_fetch) | Fetches one GeoTIFF and writes a copy that holds the legend palette inside the file. | Python 3.9+, `requests`, `tenacity`. GDAL and `numpy` for the coloured copy |
 | [`interactive-map`](interactive-map) | Shows three raster products on a MapLibre map through TMS or WMS. The browser holds the secret. Local demonstration only. | A browser, `python3 -m http.server` |
 | [`interactive-map-serverside`](interactive-map-serverside) | Shows the same map. A FastAPI server holds the secret, signs the requests, and sends the images to the browser. Local demonstration only. | Python 3.10+ |
+| [`sigwx-client`](sigwx-client) | Draws the SIGWX (significant weather) feeds as WAFC-style aviation charts. Makes PNG chart images from a JSON job file. Also shows an interactive chart in a local web page. | Node.js 22.4+, Google Chrome. No packages to install |
 
 The two map samples are a pair. Compare them to see where the secret goes.
+
+`sigwx-client` is the only sample that runs on Node.js. It does not need `npm install`.
 
 ## Credentials
 
@@ -32,7 +35,7 @@ BARON_API_KEY=your_access_key
 BARON_API_SECRET=your_access_secret
 ```
 
-`bgg-forecast` uses different names:
+`bgg-forecast` and `sigwx-client` use different names:
 
 ```
 BARON_ACCESS_KEY=your_access_key
@@ -46,7 +49,7 @@ for that sample.
 
 ## Request signing
 
-All samples sign each API request in the same way:
+The samples sign each API request in this way:
 
 ```
 ts  = the current Unix time, in whole seconds
@@ -57,6 +60,12 @@ Each request sends `ts` and `sig` as query parameters. A signature is valid for 
 ±15 minutes. If the system clock is incorrect by more than that, every request fails with
 `403 Expired timestamp`. See [`interactive-map/README.md`](interactive-map/README.md) for more.
 
+`sigwx-client` uses the same `sig`, with two differences:
+
+- It rounds `ts` to the nearest 5 minutes.
+- For the basemap requests, it sends the key, `sig` and `ts` as the `X-VW-key`, `X-VW-sig` and
+  `X-VW-ts` request headers.
+
 ## Tests
 
 | Folder | Command |
@@ -65,10 +74,14 @@ Each request sends `ts` and `sig` as query parameters. A signature is valid for 
 | `bgg-forecast` | `python3 qa_selftest.py --reference download` |
 | `geotiff_fetch` | `python3 selftest.py` |
 | `interactive-map-serverside` | `pytest`, in the virtual environment that `run.sh` makes |
+| `sigwx-client` | `npm test` |
 
 Run each command from its sample folder. The `bgg-forecast` test needs a folder of downloaded BGG
 files. Its README tells you how to get them. The other tests do not use the network or
 credentials.
+
+The `sigwx-client` test skips 7 tests when its feed captures are not in `test/captures/`. Its
+README tells you how to make them. The other tests run without the captures.
 
 `current-conditions` and `interactive-map` have no automated tests. The `interactive-map`
 README gives a manual verification list.

@@ -30,3 +30,10 @@ geotiff_fetch/*_legend.json
 geotiff_fetch/*.qml
 # GDAL PAM sidecars, written whenever something computes raster statistics
 geotiff_fetch/*.aux.xml
+
+# sigwx-client outputs. sigwx-client/.gitignore holds the same rules.
+sigwx-client/test/captures/
+sigwx-client/scripts/*.png
+sigwx-client/**/renders/
+sigwx-client/**/*.zip
+sigwx-client/**/__MACOSX/

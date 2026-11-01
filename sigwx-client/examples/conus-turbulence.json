@@ -1,0 +1,12 @@
+{
+  "output": "conus-turbulence.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 39, "lon": -97 },
+  "zoom": 4,
+  "basemap": "light",
+  "layers": { "all": false, "turbulence": true, "grid": true },
+  "legend": true,
+  "key": false
+}

@@ -1,0 +1,179 @@
+{
+  "output": "country-brazil.png",
+  "product": "sigwx",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": -12, "lon": -52 },
+  "zoom": 4,
+  "basemap": "satellite",
+  "density": 1.25,
+  "layers": {
+    "all": true,
+    "jets": true,
+    "cb": true,
+    "turbulence": true,
+    "icing": true,
+    "tropopause": true,
+    "volcanoes": true,
+    "cyclones": true,
+    "grid": true
+  },
+  "legend": true,
+  "key": true,
+  "width": 1300,
+  "height": 1100,
+  "scale": 1,
+  "style": {
+    "fonts": {
+      "mapRegular": "Noto Sans Regular",
+      "mapBold": "Noto Sans Bold",
+      "labels": "Roboto Mono",
+      "text": "Roboto"
+    },
+    "symbols": {
+      "color": "#ffffff",
+      "halo": "#000000",
+      "haloWidth": 2.5,
+      "stroke": 0.085
+    },
+    "jets": {
+      "line": { "color": "#ffffff", "width": 4.5 },
+      "casing": { "color": "#000000", "width": 8 },
+      "label": {
+        "size": 14,
+        "color": "#ffffff",
+        "halo": "#000000",
+        "haloWidth": 2.5,
+        "speedWeight": "bold",
+        "weight": "regular"
+      },
+      "barbs": { "scale": 1.1, "width": 2.2 },
+      "arrowSize": 26,
+      "changeBarSize": 26
+    },
+    "turbulence": {
+      "moderate": { "fill": "#ffd60a", "opacity": 0.25 },
+      "severe": { "fill": "#ff9f1c", "opacity": 0.4 },
+      "outline": {
+        "color": "#ffd60a",
+        "width": 3,
+        "dash": [3, 2]
+      },
+      "casing": { "color": "#000000", "width": 6 }
+    },
+    "icing": {
+      "moderate": { "fill": "#4cc9f0", "opacity": 0.22 },
+      "severe": { "fill": "#4361ee", "opacity": 0.4 },
+      "line": {
+        "color": "#4cc9f0",
+        "width": 3,
+        "fallbackDash": [2, 1.5]
+      },
+      "ticks": {
+        "width": 2,
+        "length": 8,
+        "spacing": 18
+      }
+    },
+    "hatch": {
+      "opacity": 0.6,
+      "size": 8,
+      "color": "#000",
+      "width": 1.5,
+      "edge": "#fff",
+      "edgeWidth": 3.5
+    },
+    "cb": {
+      "color": "#ff4d4d",
+      "width": 3,
+      "scallop": 16
+    },
+    "tropopause": {
+      "color": "#ffffff",
+      "border": "#ffffff",
+      "fill": "#1e293b",
+      "borderWidth": 1.5,
+      "size": 12,
+      "weight": "bold"
+    },
+    "volcanoes": { "size": 26 },
+    "cyclones": { "size": 28 },
+    "grid": {
+      "color": "#e2e8f0",
+      "width": 1,
+      "dash": [1, 4],
+      "spacing": 5,
+      "labelEvery": 10,
+      "allLabelsFromZoom": 6,
+      "label": {
+        "size": 11,
+        "color": "#ffffff",
+        "halo": "#000000",
+        "haloWidth": 2.5,
+        "weight": "regular"
+      }
+    },
+    "callouts": {
+      "size": 12,
+      "color": "#ffffff",
+      "fill": "#0f172a",
+      "border": "#ffffff",
+      "borderWidth": 2,
+      "weight": "regular",
+      "headerWeight": "bold",
+      "paddingX": 5,
+      "paddingY": 3,
+      "symbolSize": 18,
+      "symbolGap": 4,
+      "leader": {
+        "color": "#ffffff",
+        "width": 1.75,
+        "casing": "#000000",
+        "casingWidth": 4.5,
+        "arrowLength": 9,
+        "arrowWidth": 8
+      },
+      "priority": ["severeTurbulence", "severeIcing", "volcanoes", "cyclones", "cb", "moderateTurbulence", "moderateIcing"],
+      "repeats": {
+        "max": 3,
+        "spacing": 400,
+        "minClearance": 24
+      },
+      "edgePieces": true
+    },
+    "legend": {
+      "size": 11,
+      "lineHeight": 1.4,
+      "paddingX": 8,
+      "paddingY": 5,
+      "color": "#ffffff",
+      "background": "#0f172a",
+      "border": "#ffffff",
+      "borderWidth": 1.5
+    },
+    "key": {
+      "size": 12,
+      "headingSize": 11,
+      "chipSize": 10.5,
+      "color": "#f8fafc",
+      "background": "#0f172a",
+      "headingColor": "#ffd60a",
+      "noteColor": "#cbd5e1",
+      "ruleColor": "#334155"
+    },
+    "panel": {
+      "background": "#020617",
+      "columnWidth": 280,
+      "columnGap": 10,
+      "padding": 10
+    },
+    "attribution": { "size": 10 },
+    "basemap": {
+      "roads": false,
+      "roadLabels": false,
+      "buildings": false,
+      "pointsOfInterest": false,
+      "stateBorders": true
+    }
+  }
+}

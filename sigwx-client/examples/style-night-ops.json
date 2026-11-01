@@ -1,0 +1,42 @@
+{
+  "output": "style-night-ops.png",
+  "product": "sigwx",
+  "level": "mid",
+  "valid": "current",
+  "center": { "lat": 45, "lon": -35 },
+  "zoom": 3.4,
+  "basemap": "dark",
+  "legend": true,
+  "key": true,
+  "style": {
+    "fonts": { "labels": "IBM Plex Mono", "text": "IBM Plex Sans", "mapBold": "Metropolis Bold" },
+    "symbols": { "color": "#ffd400", "halo": "#000" },
+    "jets": {
+      "line": { "color": "#ffd400", "width": 5 },
+      "casing": { "color": "#000", "width": 8 },
+      "label": { "color": "#ffd400", "halo": "#000", "size": 14 },
+      "barbs": { "scale": 1.2, "width": 2.5 }
+    },
+    "turbulence": {
+      "moderate": { "fill": "#ff8800", "opacity": 0.22 },
+      "severe": { "fill": "#ff3300", "opacity": 0.35 },
+      "outline": { "color": "#ff8800", "width": 3, "dash": [2, 1] },
+      "casing": { "color": "#000" }
+    },
+    "icing": {
+      "moderate": { "fill": "#00e5ff", "opacity": 0.15 },
+      "severe": { "fill": "#0077ff", "opacity": 0.3 },
+      "line": { "color": "#00e5ff", "width": 2.5 },
+      "ticks": { "width": 2, "length": 9 }
+    },
+    "hatch": { "color": "#fff", "edge": "#000" },
+    "cb": { "color": "#ff2d95", "width": 2.5, "scallop": 18 },
+    "tropopause": { "color": "#e5e7eb", "border": "#e5e7eb", "fill": "#1f2937" },
+    "grid": { "color": "#4b5563", "dash": [1, 0], "label": { "color": "#9ca3af", "halo": "#000" } },
+    "callouts": { "fill": "#111827", "color": "#f3f4f6", "border": "#ffd400", "borderWidth": 2, "leader": { "color": "#ffd400", "casing": "#000" } },
+    "legend": { "background": "#111827", "color": "#f3f4f6", "border": "#ffd400" },
+    "key": { "background": "#111827", "color": "#f3f4f6", "headingColor": "#ffd400", "noteColor": "#9ca3af", "ruleColor": "#374151" },
+    "panel": { "background": "#000000" },
+    "attribution": { "size": 9 }
+  }
+}

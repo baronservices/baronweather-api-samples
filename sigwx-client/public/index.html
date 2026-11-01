@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIGWX</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700&family=Noto+Sans+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+</head>
+<body>
+<header class="strip">
+  <div class="row">
+    <div class="brand reveal" style="--i:0"><span class="mark">WAFS</span> SIGWX</div>
+    <div class="group reveal" style="--i:1" role="group" aria-labelledby="lbl-product">
+      <span class="glabel" id="lbl-product">Product:</span><div class="seg" id="product"></div>
+    </div>
+    <div class="group reveal" style="--i:2" role="group" aria-labelledby="lbl-level">
+      <span class="glabel" id="lbl-level">Level:</span><div class="seg" id="level"></div>
+    </div>
+    <div class="group reveal" style="--i:3" role="group" aria-labelledby="lbl-basemap">
+      <span class="glabel" id="lbl-basemap">Basemap:</span><div class="seg" id="basemap"></div>
+    </div>
+    <span class="loading-note" id="loading" hidden>Loading…</span>
+  </div>
+  <div class="row">
+    <div class="group reveal" style="--i:4" role="group" aria-labelledby="lbl-valid">
+      <span class="glabel" id="lbl-valid">Valid:</span><div class="seg" id="valid"></div>
+    </div>
+    <label class="group density reveal" style="--i:5">
+      <span class="glabel">Label density</span>
+      <span class="end">Sparse</span>
+      <input type="range" id="density" min="0.5" max="2" step="0.25" aria-describedby="density-out">
+      <span class="end">Dense</span>
+      <output id="density-out" for="density"></output>
+    </label>
+    <button type="button" class="hidden-btn reveal" style="--i:6" id="hidden-btn" aria-controls="hidden-list" aria-expanded="false"></button>
+  </div>
+</header>
+<div class="banners">
+  <div class="banner error" id="banner-error" role="alert" hidden></div>
+  <div class="banner error" id="banner-style" role="alert" hidden></div>
+  <div class="banner stale" id="banner-stale" role="status" hidden></div>
+  <div class="banner notice" id="banner-notice" role="status" hidden><span></span><button type="button" aria-label="Dismiss notice">×</button></div>
+</div>
+<main>
+  <div id="map" aria-label="SIGWX map"></div>
+  <aside class="side">
+    <section class="card legend reveal" style="--i:7" aria-label="Chart legend"><div id="legend"></div></section>
+    <section class="card layers reveal" style="--i:8" aria-labelledby="lbl-layers">
+      <h2 id="lbl-layers">Layers (count in whole chart)</h2><div id="toggles"></div>
+    </section>
+    <section class="card hidden-list" id="hidden-list" aria-labelledby="lbl-hidden" hidden>
+      <h2 id="lbl-hidden"></h2>
+      <p class="hint">Hazard labels with no room on screen. Click one to fly there and open its details, or zoom in.</p>
+      <ol id="hidden-items"></ol>
+    </section>
+    <details class="card key reveal" style="--i:9" id="key" open>
+      <summary>KEY</summary>
+      <div id="key-body"></div>
+    </details>
+    <div class="attribution" id="attribution"></div>
+  </aside>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

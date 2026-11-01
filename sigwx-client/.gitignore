@@ -1,0 +1,10 @@
+test/captures/
+.env
+# Rendered examples and archive leftovers
+scripts/*.png
+renders/
+*.zip
+__MACOSX/
+# Local backups and macOS folder metadata
+backup/
+.DS_Store

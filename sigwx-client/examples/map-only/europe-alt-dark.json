@@ -1,0 +1,12 @@
+{
+  "output": "europe-alt-dark-map.png",
+  "product": "sigwx_alt",
+  "level": "high",
+  "valid": "current",
+  "center": { "lat": 48, "lon": 12 },
+  "zoom": 3.6,
+  "basemap": "dark",
+  "density": 1.5,
+  "legend": false,
+  "key": false
+}
